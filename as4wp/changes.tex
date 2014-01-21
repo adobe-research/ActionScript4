@@ -1,0 +1,1196 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\section{Modified Features Relative to ActionScript 3}
+\label{changes}
+Here we list features of AS3 that are
+kept in AS4 in some form, and explain how they have evolved.
+
+\subsection {Program Structure}
+\label{programStructure}
+An AS4 program consists of a set of files. Each file must contain an optional package directive, optional import
+directives, and then a sequence of class definitions and interface definitions.
+
+A stand-alone program defines a set of classes and interfaces and one static method to call as entry point.
+This method must have no argments and return \code{void}. A library simply omits the mentioning of the entry point.
+
+Program execution begins with the static initializer of the class that contains the static method entry point. Once this
+initializer has concluded, the specified static method is executed.
+
+% \subsubsection{Script Structure}
+% Scripts can refer to identifiers in other scripts by means of forward
+% declaration, which is available for both variables and functions. Here is an
+% example, ``script A'':
+% \begin{verbatim}
+%     var x :int;                // forward declaration
+%     function bar(n :int) :int; // forward declaration
+%
+%     function foo() :int {
+%         return bar(x);
+%     }
+%     x = 4;
+% \end{verbatim}
+% And ``script B'' in a different file:
+% \begin{verbatim}
+%     var x :int = 12;
+%     function bar(n :int) :int {
+%         return n + 3;
+%     }
+%     trace(foo());
+% \end{verbatim}
+% If script A is followed by script B then the merged main class would look like
+% this if it were decompiled:
+% \begin{verbatim}
+% public class <main> {
+%     ... // prepopulated definitions
+%
+%     public static function foo() :int {
+%         return bar(x);
+%     }
+%     public static var x :int = 12;
+%     public static function bar(n :int) :int {
+%         return n + 3;
+%     }
+%
+%     static { // A, B:
+%         x = 4;
+%         trace(foo()); // 7
+%     }
+% }
+% \end{verbatim}
+%
+% If the script order is reversed, this has direct consequences for program
+% execution order:
+% \begin{verbatim}
+% public class <main> {
+%     ... // prepopulated definitions
+%
+%     public static var x :int = 12;
+%     public static function bar(n :int) :int {
+%         return n + 3;
+%     }
+%     public static function foo() :int {
+%         return bar(x);
+%     }
+%
+%     static { // B, A:
+%         trace(foo()); // 15
+%         x = 4;
+%     }
+% }
+% \end{verbatim}
+%
+% As shown, in scripts, variables can be declared and initialized multiple
+% times, whereupon the compiler checks that all types match.
+% This may lead to multiple assignments to the same variable. A variable
+% declaration without an initializer does not cause an extra assignment. However,
+% the mere existence of the variable causes it to be initialized with a canonical
+% default value before the program begins.
+%
+% Constant definitions (\code{let}) are not allowed in the outermost scope of scripts.
+%
+% Functions can be declared an arbitrary amount of times,
+% but each function must be defined with a body exactly once,
+% and all signatures must match exactly.
+%
+% Script function definitions must not have default parameters.
+
+\subsubsection{Conditional Compilation}
+\label{sec:conditional-compilation}
+
+Conditional compilation is dictated by configuration constants that are defined
+by the following syntax.
+\begin{verbatim}
+#debug = true;
+
+#mac = true; #windows = false; #linux = false;
+
+#platform_is_unix = mac || linux;
+\end{verbatim}
+
+Any directive may be conditionally compiled by guarding the directive
+with a configuration
+constant that evaluates to a boolean value:
+\begin{verbatim}
+#test = debug && platform_is_unix;
+
+#test
+print("testing");
+
+#test
+class TestEnv { ... }
+
+#test
+function test(env) { ... }
+
+#test {
+    let env = new TestEnv();
+    test(env);
+}
+\end{verbatim}
+
+We thus carry over the expressiveness of the AS3 conditional compilation model,
+with a more compact syntax that effectively assumes a unique configuration
+namespace, which is entered by \code{\#} and applies throughout one
+directly following statement or expression.
+
+Configuration constants can be only defined with constant value type
+\code{bool}.\footnote{Additional value types for configuration syntax may become
+available later on.}
+
+\subsubsection{Static Initialization Code}
+All static initialization code needs to be marked \code{static}. This
+means that in addition to static variable definitions and static
+function definitions, any free-standing static initialization code in classes needs to be
+enclosed in blocks that are marked \code{static}, for example:
+\begin{verbatim}
+class A {
+  let x:String = "...";
+  function f():String { return x; }
+  static {
+    print(new A().f());
+  }
+}
+\end{verbatim}
+
+Regarding their internal syntax, such blocks are treated just
+like static function blocks.
+
+\subsubsection{Block Scoping}
+Many of AS4's constructs involve code {\em blocks}, which delineate nested identifier scope visibility ranges with
+curly braces. Such blocks are subject to certain rules that govern what entity exactly is symbolically referenced and
+thus denoted by each and every stated identifier in any given program. Before we provide an overview of these scoping
+rules, let's have a look at the variety of different block constructs in AS4.
+
+An interface has one block. A function body consists of a block. A substatement, e.g., a branch of an
+\code{if} statement, is also considered a block. Furthermore, the programmer can insert new blocks at will in any
+grammatical position that permits a statement. This includes nesting blocks inside blocks.
+
+A class definition contains two textually overlayed, but conceptually distinct blocks:
+\begin{description}
+\item[the instance block] which may contain non-static variable definitions and non-static function definitions,
+\item[the static block] which may contain static function definitions, static variable definitions, and static
+statement blocks.
+\end{description}
+
+To assess the identifier scopes for any program, the compiler begins by building a global lexical environment that
+consists of classes and interfaces. Thereby the global lexical environment is always in scope.
+The compiler then builds lexical environments for the static block and the instance block of every class, and the block
+of every interface, by visiting these types in inheritance order. Finally, it builds lexical environments for function
+bodies and substatement blocks by visiting them in textual order, realizing the following scoping rules.
+\begin{itemize}
+\item When visiting the static block of a class, the lexical environment of the
+static block of the superclass is in scope (if it exists).
+\item When visiting the instance block of a class,  the lexical environment of the
+instance block of the super class is in scope (if it exists), followed by
+the lexical environment of the static block of the current class.
+\item When visiting any other block, the lexical environment of the
+immediately nesting block is in scope.
+\end{itemize}
+
+When visiting a block, function definitions, variable definitions, and statements are visited in textual order. Thus,
+the compiler ``knows'' functions and variables as they are declared. Every definition introduces an entry in the lexical
+environment, and every lexical reference must bind to entries that appear in the lexical environment in scope.
+In other words, statements, variable initializers, and function bodies will not be able to forward-refer to functions
+and variables declared later in the scope.\footnote{We plan to implement forward references (respectively recursive
+bindings) for local functions in the next version of AS4. Until then, as a temporary limitation, mutually recursive
+local functions can only be expressed when nesting one function inside the other.} Furthermore, if a lexical reference
+binds to an entry in an outer lexical environment, then a shadowing definition cannot appear in the lexical environment immediately enclosing that
+reference.
+Examples:
+\pagebreak
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+{
+    var v0 = 0;
+    if (b) {
+        var v0 = 3;        // ok, shadow definition, variable can be redefined
+        function i() {
+            var y = v0;    // ok, y = 3;
+        }
+    }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+{
+    var v0 = 0;
+    if (b) {
+        function i() {
+            // var y = v0; // error: outer v0 is shadowed below
+        }
+        var v0 = 3;
+
+        function m(){
+            var y = v0;  // ok, y = 3
+        }
+    }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+{
+    function g() {
+        // f(); // error, f only defined below
+    }
+
+    let x = g();
+
+    function f() {
+        return x;
+    }
+}
+\end{verbatim}
+\end{minipage}
+
+\subsubsection{Packages and Access Control}
+\label{sec:packages-access-controls}
+We assume that an AS4 compiler gains knowledge of package names that
+  may appear in compilation units (obtained either by looking at package directives that
+  appear in the compilation units in question, or via compiler
+  switches). Based on this knowledge and the appearance of import
+  directives in code, references to class names and interface names
+  are fully qualified by package names as follows.
+
+We say that \code{p.C} is open in some code if there is an import
+  directive that appears textually earlier in some block that nests the code, and
+  it is of the form \code{import p.C} or
+  \code{import p.*}. This has the effect of making a lexical reference
+ \code{C} possibly refer to any
+  \code{public} class \code{C} in package \code{p} (the reference must
+  be uniquely
+  resolved at compile time).
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+package p {
+  public class C { }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+package q {
+  import p.C;
+  function f() {
+    return new C(); // desugars to new p.C();
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+We assume that the anonymous package is always open. Any code that is outside a
+package directive is implicitly considered to be part of the anonymous package
+in AS4 (see section~\ref{programStructure}).
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+package { // anonymous package, internally named %anon%
+  public class C { }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+package q {
+  function f() {
+    return new C(); // desugars to new %anon%.C();
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+We retain the access control modifier \code{internal} with the same meaning as
+in AS3: it specifies that an identifier is visible package-wide. Furthermore, it
+remains optional as in AS3, i.e. not naming any modifier implies
+\code{internal}. Thus, a class \code{C} that is not specified to be \code{public} is available only
+  to code in the package in which the class is defined (which could be the anonymous
+  package, of course).
+
+Inside classes, access controls have the following meanings:
+
+\begin{itemize}
+
+\item A \code{public} member \code{m} of a class can be accessed by any code.
+
+\item A \code{private} member \code{m} of a class can be accessed only by code in
+  the class in which the member is defined.
+
+\item An instance \code{protected} member \code{m} that is defined or inherited
+  by a class can be accessed by code in that class only on references
+  whose type is that class or some subclass of it.
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class A {
+  protected function f() { };
+  function g(x:B) {
+    this.f(); // OK, routes to f defined in A or its subclasses
+    x.f(); // OK, routes to f defined in A or its subclasses
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class B extends A {
+  function h(x:A) {
+    this.f(); // OK
+    this.g(this); // OK
+    //x.f(); // not OK, may route to f defined in unrelated C (see below)
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class C extends A {
+  override protected function f() { ... };
+}
+new B().h(new C());
+\end{verbatim}
+\end{minipage}
+
+\item A static \code{protected} member \code{m} that is defined in a class
+  can be accessed by code in that class and its subclasses. (Recall
+  that static members defined in a class are not inherited by
+  subclasses, but are still in scope.)
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class A {
+  static protected function f() { };
+  static function g() {
+    //C.f(); // not OK
+    f(); // OK, desugars to A.f()
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class B extends A {
+  static function h() {
+    f(); // OK, desugars to A.f()
+    //C.f(); // not OK
+    C.g(); // OK
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class C extends A {
+  static protected function f() { ... };
+  static function g() {
+    A.f(); // OK
+    f(); // OK, desugars to C.f()
+  }
+}
+\end{verbatim}
+\end{minipage}
+
+\item A member \code{m} of a class that is not specified to
+  be \code{public}, \code{private}, or \code{protected} is effectively
+  \code{internal}. Any \code{internal} member is available
+  to any code in the package in which the class is defined. It is unavailable to
+  every other package.
+
+\end{itemize}
+
+\subsubsection{Constant Evaluation}
+\label{const-eval}
+
+During lexical environment building, the compiler visits initializers
+of \code{let}s in the order they appear; as these initializers are
+visited, if they are \emph{compile-time constant} then their values are inlined. Compile-time constants are numeric, boolean, and
+string literals, references to other \code{let}s that are in
+scope (as dictated by block scoping) and have already been initialized with compile-time constants,
+and ``pure'' unary and binary operations over them (including arithmetic,
+bitwise, comparison, and logical operators, and casting and type-checking operators).
+
+\begin{verbatim}
+/* block begins */
+
+  //let x = y; // y not in scope
+  let y = 1;
+  let z = y + 1 as double;
+
+  print(z);; // prints 2.0
+
+/* block ends */
+\end{verbatim}
+
+
+\subsection{Type Hierarchy}
+The type hierarchy in AS4 is almost the same as in AS3, but there is a
+significant change at the top: value types are now directly under
+\code{*} rather than \code{Object}. Although \code{Object} is the
+root of all reference types, it does not include value types.
+
+We distinguish between the notions of subtyping and
+conversion between types. Subtyping never involves changing the underlying
+representation, whereas conversion may do so.
+
+Value types have no interesting subtyping relations among themselves, although
+some of them implicitly convert to others. Subtyping between reference types
+follows their inheritance relations in the type hierarchy. Finally, both value
+types and reference types implicitly convert to and from \code{*}.
+
+\subsubsection{The \code{*} Type and its Uses}
+\label{sec:dynamic}
+
+When an entity (variable, field, etc.) is typed as \code{*}, then we mostly
+follow the traditional dynamic typing principle (as seen in various scripting
+languages, including JavaScript and former versions of
+ActionScript\textsuperscript{\textregistered}) of making the program continue to
+run if at all possible no matter what the results. We call this a {\em
+dynamically typed code context} as opposed to a {\em statically typed code
+context}.
+
+At the top of the hierarchy, \code{*} is above both value types
+(e.g. int, double) and reference types (\code{Object} and its
+subclasses).
+
+The following methods are defined by class \code{*}:
+\begin{verbatim}
+/**
+ * @return whether the receiver and the argument are identical.
+ * Instances of Object are compared by reference.
+ * They are identical if they resulted from the same instantiation.
+ * Value type instances are never identical to Object instances.
+ * Value type instances are identical to each other
+ * if they have the same type and the same value.
+ */
+public native final function identical(other :*) :bool;
+
+/**
+ * @return an identity hash value for the receiver
+ * Every receiver indistinguishable from another by "identical()"
+ * has the same identity hash value.
+ * Non-identical receivers may have different identity hash values.
+ * In fact, these will differ with high probability.
+ */
+public native final function identityHash() :ulong;
+
+public native function toString() :String;
+\end{verbatim}
+These methods are inherited by all classes, for both reference types and value
+types, as \code{*} is at the top of the type hierarchy.
+
+In addition to overriding the above, class \code{Object} defines
+these methods\footnote{ This is a temporary arrangement, which may change later, with
+the introduction of parametric interfaces.}:
+\begin{verbatim}
+/**
+ * @return whether the receiver and the argument are equal
+ *
+ * In subclasses, 'equal()' and 'equalityHash()'
+ * should either both be overriden or neither of them.
+ */
+public function equal(other :*) :bool {
+    return this.identical(other);
+}
+
+/**
+ * @return An equality hash value based on the receiver's value contents
+ */
+public function equalityHash() :ulong {
+    return this.identityHash();
+}
+\end{verbatim}
+The method \code{equal} is invoked by the \code{==} operator when comparing two
+instances of \code{Object} (in particular strings).
+
+\subsubsection{Value Types}
+\label{sec:value-types}
+
+AS4 provides the following builtin value types.
+\begin{description}
+\item[\code{bool}] - the boolean type, a renaming of the AS3
+  \code{Boolean} type. The size of heap storage of \code{bool} values
+  is not specified.
+\item[\code{byte}]- new in AS4, 8-bit, unsigned machine integer type without
+arithmetic operations.
+\item[\code{int}] - the name is retained from AS3, but with
+  different semantics - it is a 32-bit, two's complement machine
+  integer type with wraparound on overflow.
+  \item[\code{uint}] - the name is also retained but the type is
+  given different semantics - it represents an unsigned, 32-bit
+  machine integer type with wraparound on overflow.
+  \item[\code{long}] - new in AS4, 64-bit, signed machine integer types with
+  wraparound on overflow.
+  \item[\code{ulong}] - new in AS4, 64-bit, unsigned machine integer types with
+  wraparound on overflow.
+  \item[\code{double}]  - IEEE 754 double precision floating point
+  number, replacement for the \code{Number} type, which is absent in
+  AS4.0.
+ \item[\code{float}]  - IEEE 754 single precision floating point
+  number.
+\end{description}
+
+All value type names are in short form and lowercase. No other value types are
+provided and AS4.0 does not allow user-defined value types (yet).
+Implicit conversions between numeric types are allowed, if such conversions do
+not result in any loss of precision. As a result, implicit conversions between
+signed and unsigned integer types are not allowed, unless it can be statically
+determined that no loss of precision will occur.
+
+Unlike in AS3, but
+similarly to Java, there are no implicit conversions from and to
+\code{bool} values. This may require more typing, but it increases
+readability, making the intention to arrive at a binary distinction explicit.
+In particular, this means that the following statements
+do not work when \code{x} is of type \code{T} where \code{T} is not \code{bool}.
+
+\begin{verbatim}
+if (x) { ... } // error
+var y = x || foo(); // error
+\end{verbatim}
+
+% need more about conversions and coercions
+This is the complete list of implicit coercions between value types in AS4:
+
+\begin{center}
+\begin{tabular}{| l | l | l |}
+\hline
+  From     & To & Static Precondition \\
+\hline
+  byte     & int, uint, long, ulong, double, float & \\
+\hline
+  int, uint     & long, double & \\
+\hline
+  int      & uint, ulong & $\geq 0$ \\
+\hline
+  long      & ulong & $\geq 0$   \\
+\hline
+  uint     & int  &  $<2^{31}$\\
+\hline
+  ulong    & long & $< 2^{63}$ \\
+\hline
+  long      & double & $\geq-2^{53}, < 2^{53}$   \\
+\hline
+  ulong      & double & $<2^{53}$   \\
+\hline
+  int      & float & $\geq-2^{24}, < 2^{24}$   \\
+\hline
+  uint      & float & $<2^{24}$   \\
+\hline
+  float      & double & \\
+\hline
+  double      & float & literals only, see section~\ref{numlit} for restrictions
+  \\
+\hline
+\end{tabular}
+\end{center}
+
+In addition, every type implicitly converts to \code{*}, and \code{*} implicitly
+converts to every other type. Furthermore, a type that is a
+subtype of another type implicitly
+converts to that type.
+Note that we don't consider \code{void} to be a type any more: it is merely a
+syntactic keyword.
+
+
+\subsubsection{Equality and Identity}
+AS4 retains the \code{==} and \code{===} operators but slightly
+modifies their semantics. The meaning of the identity operator
+\code{===} is fixed, defined by the language and not modifiable by
+user code. For reference types the \code{===} operator tests if two
+references point to the identical object. This is analogous to AS3,
+except that \code{String} is a reference type in AS4, and two
+references to strings with the same contents will not
+necessarily test as identical.
+
+For value types the identity operator will perform value comparison. Informally,
+two values are identical if one can be replaced by the other without any
+observable effects. As a result, two numeric values of different types are not
+considered identical. Moreover, it is in general likely that an attempt to
+compare values of different types is unintentional and the possible source of a
+bug. Therefore, a compile error is generated if the two operands of \code{===}
+do not have a common super type besides \code{*}, which is the case for any pair
+of different value types as well as when attempting to compare a value type to a reference type. For
+instance, all of these expressions result in compile errors:
+
+\begin{verbatim}
+5 === new Object() // error
+3 === 3.0          // error
+
+let n :uint = 2;
+-3 === n           // error
+\end{verbatim}
+
+The \code{==} operator does allow its operands to be of different value types as
+long as generally permitted implicit coercions as listed in section~\ref{sec:value-types}
+reach a common type. For example:
+\begin{verbatim}
+(1 << 31) as int == (1 < 31) as long;             // true
+(1 as long) << 63 == (1 as long) << 63 as double; // true
+(1 << 31) as int == (1 << 31) as uint;            // false
+\end{verbatim}
+For comparisons where both arguments have reference types, \code{==} is
+syntactic sugar for the \code{equal()} method.
+
+When no implicit coercion according to the rules laid out in section~\ref{sec:value-types}
+is available, numeric comparison (\code{==,!=,<,<=,>,>=}) of signed and unsigned
+integer types results in a compilation error.
+This may be considered draconian, however it does prevent surprising cases
+occurring in C, such as the following evaluating to \code{1} (C's \code{true}).
+\begin{verbatim}
+let n: int = 1 << 31;
+n + 1 == n as uint + 1
+\end{verbatim}
+
+The identity comparison operator \code{===} generally translates directly to
+method \code{identical()} in class \code{*} (see section~\ref{sec:dynamic}), with one
+exception that is necessary according to the above rules: if a value type is
+compared to a reference type, a {\em compile time} error occurs. To ensure {\em
+equivalent} program behavior under dynamic typing, when one or both of the
+operands are typed as \code{*}, and the actual runtime types are incomparable in
+the above sense, a {\em run time} error is thrown. Value types and reference
+types can only be intermixed when the programmer explicitly demands it. Here,
+this can be accomplished by choosing to call \code{identical()} directly instead of using
+the \code{operator}. Examples for all these situations:
+
+\begin{verbatim}
+let car :Car = new Car();
+let person :Person = new Person();
+car === person // translates to 'car.identical(person)' => false
+
+let m :int = 4;
+let n :int = 5;
+m === n // false
+n === car // compile error
+
+let x :* = n;
+let y :* = car;
+x === y // runtime error
+
+x.identical(y) // false
+y.identical(x) // false
+x.identical(5) // true
+\end{verbatim}
+
+The equality comparison operator \code{==} follows analogous rules.
+\begin{verbatim}
+let car :Car = new Car();
+let person :Person = new Person();
+car == person // translates to 'car.equal(person)'
+
+let m :int = 4;
+let n :int = 5;
+m == n // false
+n == car // compile error
+
+let x :* = n;
+let y :* = car;
+x == y // runtime error
+
+x.equal(y) // false
+y.equal(x) // false
+x.equal(5) // true
+\end{verbatim}
+
+
+\subsection{Type Literals}
+\label{typeLiterals}
+In certain syntactic contexts in AS3, the name of a class denotes a
+runtime value that represents it for reflective purposes. AS4 also
+support this, but with less syntactic ambiguity, by requiring a leading
+operator, a colon, that bridges the gap between the type domain and the value
+domain. Examples:
+\begin{verbatim}
+import type.*;
+...
+let myClass :Class = :MyClass;
+myClass.createInstance();
+let myParameterTypes = []Type{:int, :bool, :MyClass};
+\end{verbatim}
+See the reflection API in appendix~\ref{reflection} for further information
+about package \code{type} and its utility classes \code{Class} and \code{Type}.
+
+
+\subsection{Numeric Literals}
+\label{numlit}
+Numeric literals with a decimal point are of type \code{double}.
+\begin{verbatim}
+let d1:double = 4.7;
+let d2 = 4.7; // also double
+\end{verbatim}
+To obtain values of type \code{float}, one can use casts or
+type annotations.
+\begin{verbatim}
+let f1 :float = 4.7;
+let f2 = 4.7 as float;
+\end{verbatim}
+
+Where a \code{double} program literal occurs, these are all possible
+interpretations:
+\begin{enumerate}
+  \item The recipient (variable, parameter, field) is known as a
+  \code{double}. This type checks trivially.
+  \item The recipient is known to be of type \code{float}. Then an implicit
+  conversion occurs. Thus float literals do not need a trailing "f" or any
+  other marker as in other languages.
+  \item The recipient is subject to type inference. Then the presence of the
+  program literal forces the inferred type to be \code{double} (unless it is
+  contradictory anyway), never \code{float}.
+\end{enumerate}
+
+Why is case $2$ OK even though a loss of precision occurs and as a general
+design rule we do not permit implicit conversions where this is the case? We allow an
+ exception from the rule here, because a loss of precision also occurs in case
+ $1$! With floating point literals of any kind, there is always a hazard
+ whether one happens to express a number that can actually be represented by the
+ resulting bit pattern or not. One may type a number and the actually stored
+ number differs in some decimal places. From this point of view, case $2$ does
+ not look worse than case $1$. There would be a problem though, if the
+ programmer were to implicitly expect a certain precision as expressed in your literal. This is why
+ case $3$ infers \code{double} from floating point literals, unless overruled by
+ explicit typing. Thus the programmer only encounters extra loss of precision
+ when explicitly asking for it.
+
+Numeric literals in decimal form but without a decimal point are of
+type \code{int}, unless the literal value does not fit in an \code{int}, in
+which case they are of type \code{long}.
+\begin{verbatim}
+let i1 :int = 3;
+let i2 = 3;
+let i3:long = 1000000000000000;
+let i4 = 1000000000000000; // inferred type is long
+\end{verbatim}
+% Numeric literals in hexadecimal form are of type \code{uint} unless
+% the literal value does not fit in a \code{uint}, in which case they
+% are of type \code{ulong}
+% \begin{verbatim}
+% let blue :uint = 0x0000FF;
+% let green = 0x00FF00;
+% let muchJava = 0xCAFECAFECAFECAFE; // inferred type is ulong
+% \end{verbatim}
+String literals are of type \code{String}. The rules for single and
+double quotes are the same as in AS3.
+\begin{verbatim}
+let s1 = "Hello World!";
+let s2: String = '"Hello!", responded the world';
+let s3: String = "bye";
+\end{verbatim}
+
+In  initialization assignments, type annotations on the variable being defined can be used
+to request compile-time conversion. Alternatively, the cast operator
+syntax can be used (the cast operator on constants is interpreted by
+the compiler as a part of constant propagation, see \ref{const-eval})
+\begin{verbatim}
+let i2 :uint = 5; // this is fine
+let i1 = 5 as uint;  // cast syntax
+let l2 :long = 5;
+let 1l = 5 as long;
+\end{verbatim}
+
+In expression contexts the cast operator syntax can be used to obtain the
+desired type of the constant:
+\begin{verbatim}
+var hibits = (0xFFFFFFFF as ulong) << 32;
+\end{verbatim}
+% we don't have 0L, OU etc? <<<<
+
+\subsection{Arithmetic, Bitwise, and Comparison Operators}
+\label{sec:operators}
+
+Integral types are \code{byte}, \code{int}, \code{uint}, \code{long}, and
+\code{ulong}. Numeric types are integral types,
+\code{double}, and \code{float}. Value types are numeric types and
+\code{bool}. Reference types are \code{Object} and its
+subclasses, including function types: thus, reference types
+are non-value
+types other than \code{*}.
+
+The \emph{least upper bound} (LUB) of two numeric types $T_1$ and $T_2$ is defined as
+a numeric type $T_3$ such that $T_1$ and $T_2$ implicitly convert to $T_3$,
+and for any other numeric type  $T'_3$ such that $T_1$ and $T_2$ also implicitly
+convert to $T'_3$,
+we have that $T_3$ implicitly converts to $T'_3$.
+
+The tables in the following subsections outline all possible typings
+for various binary and unary operators.
+
+\subsubsection{Binary \code{+}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Operands}    & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T_1$, $T_2$ & $T_3$ & $T_1$ and $T_2$ numeric but not both \code{byte}, LUB of $T_1$ and
+  $T_2$ is $T_3$ (cast both operands to $T_3$) \\
+\hline
+  $T_1$, $T_2$ & String & $T_1$ or $T_2$ is \code{String} (cast
+  both operands to
+  String) \\
+\hline
+  $T_1$, $T_2$ & \code{*} & $T_1$ or $T_2$ is \code{*} and the other is \code{*}
+  or numeric (unbox \code{*} operand(s), box result) \\
+\hline
+\end{tabular}
+\end{center}
+
+In particular, we have the following typings:
+\begin{verbatim}
+//byte + byte // ERROR
+byte + int = int
+int + int = int
+uint + uint = uint
+int + uint = long
+int + double = double
+//long + ulong // ERROR
+//double + long // ERROR
+int + String = String
+String + * = String
+int + * = *
+\end{verbatim}
+
+\newcommand{\xor}{\mathbin{\char`\^}}
+
+\subsubsection{Binary \code{-}, \code{*}, \code{/}, \code{\%}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Operands}    & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T_1$, $T_2$ & $T_3$ & $T_1$ and $T_2$ numeric but not both \code{byte}, LUB of $T_1$ and $T_2$ is $T_3$ (cast to
+  $T_3$)
+  \\
+\hline
+  $T_1$, $T_2$ & \code{*} & $T_1$ or $T_2$ is \code{*} and the other is \code{*}
+  or numeric
+  (unbox \code{*} operands, box result) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Binary \code{\&},
+  \code{|}, \code{\^{}}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Operands} & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T_1$, $T_2$ & $T_3$ & $T_1$ and $T_2$ integral but not both \code{byte}, LUB of $T_1$ and
+  $T_2$ is $T_3$ (cast both operands to $T_3$) \\
+\hline
+  $T_1$, $T_2$ & \code{*} & $T_1$ or $T_2$ is \code{*} and the other is \code{*}
+  or integral
+  (unbox \code{*} operand(s), box result) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Unary \code{-}}
+
+\begin{center}
+\begin{tabular}{| l | l | l |}
+\hline
+  \emph{Operand}    & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T$    & $T$ & $T$ numeric but not \code{byte} \\
+\hline
+  \code{*}    & \code{*} &
+  (unbox \code{*} operands, box result) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Unary \code{\~{}}}
+
+\begin{center}
+\begin{tabular}{| l | l | l |}
+\hline
+  \emph{Operand}    & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T$    & $T$ & $T$ integral  but not \code{byte} \\
+\hline
+  \code{*}    & \code{*} &
+  (unbox \code{*} operands, box result) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Binary \code{<<}, \code{>>}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Left Operand}    & \emph{Right Operand} & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T$   & $S$ & $T$ & $T$ integral but not \code{byte}, $S$ is implicitly convertible to \code{int} \\
+\hline
+  \code{*}   & $S$ & \code{*} & $S$ is implicitly
+  convertible to \code{int} \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Binary \code{==}, \code{!=}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Operands}   & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  \code{bool}, \code{bool} & \code{bool}  \\
+\hline
+  \code{byte}, \code{byte} & \code{bool}  \\
+\hline
+  $T_1$, $T_2$ & \code{bool} & $T_1$ and $T_2$ numeric but not both \code{byte},
+  LUB of $T_1$ and $T_2$ is $T_3$ (cast both operands to
+  $T_3$) \\
+\hline
+  $T_1$, $T_2$ & \code{bool} & $T_1$ and $T_2$ reference \\
+\hline
+  $T_1$, $T_2$ & \code{bool} & $T_1$ or $T_2$ is \code{*} (unbox
+  \code{*} operand(s)) \\
+\hline
+\end{tabular}
+\end{center}
+
+\subsubsection{Binary \code{<}, \code{>}, \code{<=}, \code{>=}}
+
+\begin{center}
+\begin{tabular}{| l | l | l | l |}
+\hline
+  \emph{Operands} & \emph{Result} & \emph{Compile-Time Precondition} \\
+\hline
+  $T_1$, $T_2$ & bool & $T_1$ and $T_2$ numeric but not both \code{byte}, LUB of $T_1$ and
+  $T_2$ is $T_3$ (cast both operands to
+  $T_3$) \\
+\hline
+  $T_1$, $T_2$ & bool & $T_1$ or $T_2$ is \code{*} and the other is
+  numeric or \code{*} (unbox \code{*} operand(s)) \\
+\hline
+\end{tabular}
+\end{center}
+
+
+
+
+\subsection{Object Literals}
+\label{object-literal}
+
+In addition to the AS3 constructor call syntax for object creation, viz.
+\code{new C} and \code{new C(arg1,...,argn)}, we additionally introduce the syntax
+\code{new C}\verb'{'\code{x1=e1,...,xn=en}\verb'}' and \code{new
+  C(arg1,...,argn)}\verb'{'\code{x1=e1,...,xn=en}\verb'}', which effectively
+  constitutes object literals.
+
+  As in AS3, an object literal with a
+missing argument list (in parentheses) is replaced by a call to the 0-ary
+constructor of the specified class. In addition, the assignment list (in braces) is desugared
+to a sequence of assignments to the corresponding fields of the newly
+created object. Syntactically, the class specified in an object
+literal must not be an array type or a function type.
+
+\subsection{Metadata}
+\label{metadata}
+AS4 supports metadata, but changes the syntax from AS3. Syntactically, metadata
+definitions have the exact same shape of object literals, except that
+\code{@} is used to introduce them. For instance:
+\begin{verbatim}
+@Builtin
+@Native(12.0){cls = "DateClass", instance = "DateObject",  gc = "exact", construct = "override"}
+public class Date {
+     ...
+}
+\end{verbatim}
+Semantically, only {\em conforming} object literals are
+allowed as metadata, with the leading \code{new} replaced
+by \code{@}. For now, an object literal is conforming if the
+expressions in it are compile-time values of primitive types, strings, or type literals (see
+section~\ref{typeLiterals}) or \code{null}.
+The name following the \code{@} symbol must be a valid class name and the class
+must be a subclass of \code{Object}.
+The classes above are declared as follows.
+\begin{verbatim}
+public class Builtin {}
+
+public class Native {
+  var cls :String;
+  var instance :String;
+  var gc :String;
+  var construct :String;
+  let version :double;
+  function Native(version :double) { this.version = version; }
+}
+\end{verbatim}
+% It is possible to quickly add metadata without declaring a dedicated class:
+% \begin{verbatim}
+% @{timeout : 100, retries : 9}
+% \end{verbatim}
+% This is equivalent to using \code{PropertyMap} as metadata tag, which is
+% consistent with property map literal syntax in general (see
+% section~\ref{propertyMaps}).
+
+\subsection{Strings}
+\label{sec:string}
+
+AS4 strings represent immutable sequences of Unicode code points. The length of
+the sequence is represented as an \code{int}.
+A Unicode ``code point'' is represented as a \code{uint} value in the $[0, 17 * 2^{16}]$
+range.
+\begin{verbatim}
+public class String extends Object {
+    public native final function length() :int; // the number of code points
+    public native final function codePointAt(index :int):uint;
+    public native final function indexOf(string:String):int;
+    override public native final function equal(other :*):bool;
+    ...
+}
+\end{verbatim}
+
+The language does not specify which Unicode encoding is used
+internally by its implementation. Indexed access to code points is
+provided via the \code{codePointAt()} method. However, due to the
+internal use of variable-length encodings (e.g. UTF-8), it is not guaranteed nor
+is it likely to have $O(1)$ complexity.
+For fast iteration, it is therefore not advisable to use a loop with a counter index.
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+    let s :String = ...; // large String
+
+    for (int i = 0; i < s.length; i++) {
+        let codePoint = codePointAt(i);   // SLOW!
+        ...codePoint...
+    }
+\end{verbatim}
+\end{minipage}
+
+There is no way to iterate quickly over the characters of a string,
+but we intend to add one later.
+Until then, a string can be rapidly converted to an array of code points:
+\begin{verbatim}
+    let codePoints :[]uint = s.toCodePointArray(); // quite quick
+
+    for (int i = 0; i < codePoints.length; i++) {
+        let codePoint = codePoints[i]; // FAST
+        ...codePoint...
+    }
+\end{verbatim}
+
+Unlike in AS3, identity comparison of \code{String} objects does not
+result in content comparison. For instance, the language does not
+guarantee that \code{'Hello' + (function():String{ return "World";})()}
+is identical to \code{'HelloWorld'}.
+
+The absolute maximum length of strings is $2^{32}-1$ as the return type of
+\code{String.length()} is \code{int}. However, the actual maximum size that can
+be created in a program is limited to whatever the current runtime allows.
+
+\subsection{\code{Vector} becomes \code{ArrayList}}
+\label{vector}
+AS3 has a variable length array type called \code{Vector}, which is
+parametrized by its element type. We provide a very similar construct that is
+now called \code{ArrayList}. However, the type syntax no longer contains a
+``.''. For example:
+\begin{verbatim}
+var v :Vector.<int> = new Vector.<int>(4,false); // old syntax
+var l :ArrayList<int> = new ArrayList<int>(4); // new syntax
+\end{verbatim}
+
+The option to dynamically fix the length of a vector is preserved, but there is
+no way to change the length again once it is fixed.
+This method in class \code{ArrayList} replaces the field \code{Vector.fixed}.
+\begin{verbatim}
+/**
+ * Prohibit length mutation of this array list going forward.
+ * @return an array that contains the same elements as the receiver
+ * Repeated calls may return the identical array.
+ * The implementation may or may not have copy overhead.
+ * Aliasing may occur when accessing the resulting array
+ * and the original array list as well.
+ *
+ * This is a temporary measure for our first release.
+ * We will follow up with a parametrically typed version later.
+ * This later version will also always provide no-copy aliasing.
+ */
+public native function fixLength() :*;
+\end{verbatim}
+
+The constructor no longer has the length fixing boolean argument:
+\begin{verbatim}
+var v :Vector.<int> = new Vector.<int>(4,true); // old syntax
+
+var l :ArrayList<int> = new ArrayList<int>(4); // new syntax
+l.fixLength();
+\end{verbatim}
+
+There is no object literal syntax for array lists. However, a static method is
+provided for bulk initialization with an array.
+\begin{verbatim}
+/**
+ *  @return an array list that is populated with the array elements
+ *
+ * This is a temporary measure for our first limited language release.
+ * We will follow up with a parametrically typed alternative constructor later.
+ */
+public static native function create(array :*) :*;
+\end{verbatim}
+
+We would like to provide generic programming against both array lists and arrays
+with a common interface. Unfortunately, the first version of AS4 will not let us
+express this. However, we plan to introduce this capability in a later release
+with generalized parametric types.
+
+\subsection{The \code{override} Method Attribute}
+Use of the \code{override} attribute for methods that do override other methods
+is optional in  AS4. We believe that IDEs can indicate the overriding
+relationship and give related warnings as needed. However, we still want to give
+programmers who do not use an IDE the option to declare their intent visibly.
+
+\subsection{For-in enumeration}
+
+The syntax and semantics of \code{for-in} enumeration have been modified to enable more
+aggressive optimizations and facilitate correctness.
+
+\begin{verbatim}
+let v :ArrayList<String> = ...; // length 5
+for (i :int in v) {
+  print(v[i]); // executes 5 times
+  if (...) v.push("...");
+}
+\end{verbatim}
+
+In the above code, \code{i} ranges over \code{0..4}, even though the
+length of the array list may change during execution of the loop.
+
+For-in enumeration over arrays obviously works on a fixed key set
+as well, because arrays cannot be grown (or shrunk) in AS4.
+
+Additionally, we drop \code{for-each-in} enumeration. This feature
+will be replaced by ``comprehensions'' in a later version of AS4.
+Meanwhile, common AS3 usecases can be ported by a combination of \code{for-in}
+enumeration and indexing operations.
+
+\pagebreak

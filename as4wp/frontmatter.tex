@@ -1,0 +1,218 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\documentclass[10pt,oneside]{article}
+\usepackage{inconsolata}
+\usepackage[T1]{fontenc}
+\usepackage{microtype}
+\DisableLigatures{encoding = *, family = * }
+\usepackage{upquote}
+\usepackage[usenames,dvipsnames]{color}
+\usepackage{fullpage}
+\usepackage[parfill]{parskip}    % Activate to begin paragraphs with an empty line rather than an indent
+\usepackage{graphicx}
+\usepackage{amssymb}
+\usepackage{epstopdf}
+\usepackage{amsthm}
+\usepackage{../third-party/mathpartir/mathpartir}
+\usepackage[usenames,dvipsnames]{color}
+\DeclareGraphicsRule{.tif}{png}{.png}{`convert #1 `dirname #1`/`basename #1 .tif`.png}
+
+\DeclareFixedFont{\slantsf}{T1}{cmss}{m}{sl}{10}
+\DeclareFixedFont{\slantsffootnote}{T1}{cmss}{m}{sl}{8}
+\DeclareFixedFont{\slantsfsmall}{T1}{cmss}{m}{sl}{9}
+
+\definecolor{WikiBlue}{rgb}{0.2,0.2,.5}
+
+\renewcommand{\labelenumiv}{\Roman{enumiv}.}
+
+
+\usepackage[linkbordercolor={1 1 1},colorlinks=true,linkcolor=WikiBlue,urlcolor=WikiBlue]{hyperref}
+
+\usepackage{listings}
+\lstset{language=Java,numbers=left,numberstyle=\tiny,numbersep=5pt,basicstyle=\small\ttfamily,commentstyle=\rmfamily,columns=flexible,frame=none,texcl=true,mathescape=true,lineskip=1pt,escapeinside={/**}{*/},showstringspaces=false,otherkeywords={assert}
+}
+
+\setcounter{secnumdepth}{3}
+
+\setlength{\marginparwidth}{1.2in}
+\reversemarginpar
+\let\oldmarginpar\marginpar
+\renewcommand\marginpar[1]{\-\oldmarginpar[\raggedleft\footnotesize #1]%
+{\raggedright\footnotesize #1}}
+
+%\makeatletter
+%\renewcommand{\l@section}{\@dottedtocline{1}{1.5em}{1.0em}}
+%\renewcommand{\l@subsection}{\@dottedtocline{2}{2.5em}{1.7em}}
+%\renewcommand{\l@subsubsection}{\@dottedtocline{3}{4.2em}{2.8em}}
+%\makeatother
+
+\newcounter{parnum}[section]
+\newcommand{\N}{\addtocounter{parnum}{1}\marginpar{\quad\arabic{chapter}.\arabic{section}(\arabic{parnum})}}
+
+\newcounter{prod}
+\newcounter{notemark}
+\newcounter{tmp}
+\newcounter{base}
+
+\newcommand{\tag}[1]{${}_{~\!\!\mathtt{#1}}$}
+\newcommand{\note}[1]{{\scriptsize #1}}
+\newcommand{\condition}[1]{\note{$\langle$#1$\rangle$}}
+\newcommand{\grammarprod}{\addtocounter{prod}{1}\\{\tiny
+    \arabic{prod}} \>}
+\newcommand{\grammarproD}{\addtocounter{prod}{1}{\tiny
+    \arabic{prod}} $~~~~$ \=}
+%\newcommand{\grammardef}{}
+%\newcommand{\punctuator}[1]{$\mathtt{#1}$}
+%\newcommand{\punctuator}[1]{\verb`#1`}
+%\newcommand{\nonterminal}[1]{{\it #1}}
+
+\newcommand{\nonterminal}[1]{{\slantsf #1}}
+\newcommand{\lexicalnonterminal}[1]{{\sf #1}}
+\newcommand{\terminal}[1]{{\tt #1}}
+%\renewcommand{\not}{$\neg$}
+%\renewcommand{\lor}{$|~$}
+%\newcommand{\noxmlwhitespace}{\condition{no
+%    \lexicalnonterminal{XMLWhitespace}}}
+\newcommand{\nolineterminator}{\condition{\underline{noLineTerminator}}}
+\newcommand{\lookaheadnotbegin}{\note{$\langle$lookahead not }}
+\newcommand{\lookaheadnotend}{\note{$\rangle$}}
+\newcommand{\butnotbegin}{\note{$\langle$\underline{but not} }}
+\newcommand{\butnotend}{\note{$\rangle$}}
+\newcommand{\butnoembeddedbegin}{\note{$\langle$but no embedded }}
+\newcommand{\butnoembeddedend}{\note{$\rangle$}}
+
+\newcommand{\tagbegin}[1]{\note{$\langle$\underline{#1} }}
+\newcommand{\tagend}{\note{$\rangle$}}
+\newcommand{\ortag}{\underline{or}}
+
+\newtheoremstyle{note}% name of the style to be used
+  {5pt}% measure of space to leave above the theorem. E.g.: 3pt
+  {5pt}% measure of space to leave below the theorem. E.g.: 3pt
+  {}% name of font to use in the body of the theorem
+  {}% measure of space to indent
+  {\bf}% name of head font
+  {.}% punctuation between head and body
+  { }% space after theorem head; " " = normal interword space
+  {}% Manually specify head
+
+\theoremstyle{note}
+\newtheorem{definition}{Definition}[section]
+
+%\renewcommand{\labelitemi}{}
+
+\newenvironment{notes}
+{\footnotesize\color{Red}\underline{\arabic{notemark}}}
+{\normalsize\vspace*{5pt}}
+
+\newcommand{\marknote}{\setcounter{base}{\value{prod}}\addtocounter{notemark}{1}$\:{}^{\color{Red}\underline{\arabic{notemark}}}$}
+
+\newcommand{\prodnum}[1]
+{\setcounter{tmp}{\value{base}}\addtocounter{base}{#1}{\tiny\arabic{base}:}\setcounter{base}{\value{tmp}}}
+
+%MACROS FOR COMMENTS
+\newcommand{\avik}[1]{\textcolor{RoyalBlue}{{\bf Avik:} #1}}
+\newcommand{\jeff}[1]{\textcolor{RoyalBlue}{{\bf Jeff:} #1}}
+\newcommand{\lars}[1]{\textcolor{RoyalBlue}{{\bf Lars:} #1}}
+\newcommand{\basil}[1]{\textcolor{RoyalBlue}{{\bf Basil:} #1}}
+
+%Useful markup
+\newcommand{\informative}[1]{{\bf Informative note:} #1}
+\newcommand{\example}[1]{{\bf Example:} #1}
+\newcommand{\rationale}[1]{{\bf Rationale:} #1}
+\newcommand{\todo}[1]{\textcolor{Red}{{\bf TODO:} #1}}
+\newcommand{\implnote}[1]{{\bf Implementation note:} #1}
+\newcommand{\method}[1]{{\tt #1}}
+\newcommand{\operator}[1]{{\tt #1}}
+\newcommand{\instruction}[1]{{\tt #1}}
+\newcommand{\expression}[1]{{\tt #1}}
+\newcommand{\subr}[1]{{\bf #1}}
+\newcommand{\argument}[1]{{\em #1}}
+\newcommand{\typename}[1]{{\bf #1}}
+\newcommand{\asvalue}[1]{{\bf #1}}
+
+
+% NAME RESOLUTION
+
+\newcommand{\packagepublic}[1]{\mathbf{Public}_{#1}}
+\newcommand{\packageinternal}[1]{\mathbf{Internal}_{#1}}
+\newcommand{\fileinternal}[1]{\mathbf{Program}}
+\newcommand{\classprivate}[1]{\mathbf{Private}_{#1}}
+\newcommand{\classprotected}[1]{\mathbf{Protected}_{\it #1}}
+\newcommand{\classprotectedstatic}[1]{\mathbf{StaticProtected}_{\it #1}}
+
+\newcommand{\pkg}{{\sf pkg}}
+\newcommand{\nsval}{{\sf nsval}}
+\newcommand{\xname}{{\sf xname}}
+\newcommand{\qname}{{\sf qname}}
+\newcommand{\id}{{\sf id}}
+\newcommand{\xquals}{{\sf XQuals}}
+\newcommand{\key}{{\sf key}}
+\newcommand{\str}{{\sf str}}
+\newcommand{\lexenv}{{\sf LexEnv}}
+\newcommand{\slot}{{\sf slot}}
+\newcommand{\mname}{{\sf mname}}
+\newcommand{\open}{{\sf Open}}
+\newcommand{\rname}{{\sf rname}}
+
+\newcommand{\func}[1]{\emph{#1}}
+
+
+% CONSTANT EVALUATION
+
+\newcommand{\val}{{\sf val}}
+\newcommand{\op}{{\sf op}}
+
+\newcommand{\name}{{\sf name}}
+\newcommand{\obj}{{\sf obj}}
+\newcommand{\rval}{{\sf ref}}
+\newcommand{\super}{{\sf super}}
+\newcommand{\new}{{\sf new}}
+\newcommand{\expr}{{\sf expr}}
+\newcommand{\dynenv}{{\sf DynEnv}}
+\newcommand{\ty}{{\sf ty}}
+\newcommand{\sig}{{\sf sig}}
+\newcommand{\body}{{\sf body}}
+\newcommand{\envrec}{{\sf EnvRec}}
+\newcommand{\envtbl}{{\sf EnvTbl}}
+
+\newcommand{\constenv}{\mathsf{ConstEnv}}
+
+\newcommand{\openavik}{\avik{}\color{RoyalBlue}}
+\newcommand{\closeavik}{\color{black}}
+
+\newcommand{\openjeff}{\jeff{}\color{RoyalBlue}}
+\newcommand{\closejeff}{\color{black}}
+
+% STATIC VERIFICATION
+
+\newcommand{\delete}{{\sf delete}}
+\newcommand{\typeof}{{\sf typeof}}
+\newcommand{\void}{{\sf void}}
+
+% EXPRESSIONS
+
+\newcommand{\excon}{{\sf ExCon}}
+\newcommand{\num}{{\sf num}}
+\newcommand{\lhsexpr}{{\sf lhsexpr}}
+\newcommand{\field}{{\sf field}}
+\newcommand{\info}{{\sf info}}
+
+
+% CODE
+\newcommand{\code}[1]{{\tt #1}}
+
+%OTHER
+\usepackage{listings}
+\lstset{numbers=none}

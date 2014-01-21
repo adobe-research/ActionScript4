@@ -1,0 +1,224 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\section{Upcoming Features}
+\label{upcoming}
+So far, we have just described the intended feature set of the first version of
+AS4. In this section we present additional features that we want to introduce as
+quickly as possible thereafter.
+
+Note that we cannot guarantee that these or any other features will appear in
+any particular form or order. Everything we have written from here on is to be
+considered as somewhat speculative.
+
+\subsection{The \code{Symbol} Class for String Interning}
+Instances of \code{String} objects are not interned, neither explicitly nor
+implicitly. If interning behavior is expected, the \code{Symbol} class must be
+used.
+
+\begin{verbatim}
+public restricted class Symbol extends String {
+    /**
+     * "Intern" a given string.
+     *
+     * 1. If the identical string is already in the global intenring table,
+     *    return it.
+     * 2. Otherwise, if a string of equal content is already in the table,
+     *    return it.
+     * 3. Otherwise, enter a copy of the string typed as \code{Symbol}
+     *    into the table, then return this resident unique representative
+     *    of all strings of equal content.
+     *
+     * The cost of the initial copying can quickly be amortized
+     * when comparing symbols to each other by identity
+     * instead of by equality as with non-interned strings.
+     *
+     * We assume that string interning is predominantly going to be used
+     * for relatively short strings, which mitigates the initial interning cost.
+     *
+     * Explicit coercion of a value to \code{Symbol} (\code{value as Symbol})
+     * translates to a call to this method.
+     * If necessary, this is preceded by implicit coercion to \code{String}
+     * (\code{value as String as Symbol}).
+     */
+    public static final function fromString(string :String) :Symbol;
+
+    override public function equal(other :*):bool
+    {
+        return this.identical(other);
+    }
+    ...
+}
+\end{verbatim}
+All string literals are already \code{Symbol} instances. Additional
+\code{Symbol} instances can be produced from Strings by explicit coercion,
+as shown below or by direct calls to the above constructor.
+
+\begin{verbatim}
+function world():Symbol { return "World"; }
+
+let s1 :Symbol = "Hello"; // OK, because string literals are Symbols already
+let s2 :Symbol = "Hello" + world(); // Error, concatenating computed symbols produces a String
+
+let string1 :String = "Hello" + world();
+let string2 :String = "Hello" + world();
+print(string1 == string2); // true
+print(string1 === string2); // false
+
+let symbol1 :Symbol = string1 as Symbol;
+let symbol2 :Symbol = string2 as Symbol;
+print(symbol1 == symbol2); // true
+print(symbol1 === symbol2); // true
+\end{verbatim}
+
+\code{Symbol} extends \code{String}, but \code{String} is otherwise not
+extensible by user code without certain restrictions, which we explain in the
+following section.
+
+\subsection{Restricted Classes}
+Generalizing the concept behind class \code{Symbol}, we introduce the keyword
+\code{restricted} as class attribute. A {\em restricted} class can be extended
+by subclasses, but those must not declare any additional instance fields.
+Furthermore, every subclass of a restricted class must be a restricted class,
+too.
+
+Class \code{String} is a restricted class and class \code{Symbol} extends it
+(see above).
+
+Restricted classes can be used for encoding relevant invariants, which can thus
+be statically guaranteed by the type checker. That a string is guaranteed to be
+interned when typed as a \code{Symbol} is just one example. Other conceivable
+(user-defined) examples are: strings that comply with a certain lexical grammar
+(e.g. ``well-formed'' identifiers), lists that are assumed to be sorted,
+acyclical graphs, etc. Of course, the user has to be careful that the guaranteed
+invariants actually hold and cannot be broken by mutation of constituent
+variables.
+
+\subsection{Enumeration Types}
+In AS3, finite sets of discrete, enumerated values are customarily represented
+by string constants, which is a poor choice for various obvious reasons.
+Alternatively, one can use integer numbers, but this is not ideal either. There
+is a pattern that provides a more type-safe and comfortable encoding, but it
+requires a lot of boiler plate code and strict adherence to certain protocol.
+Example:
+\begin{verbatim}
+public final class RbgColor // AS3 enum pattern code:
+{
+    private var _ordinal:int;
+
+    public function get ordinal():String
+    {
+        return _ordinal;
+    }
+
+    private var _name:String;
+
+    public function get name():String
+    {
+        return _name;
+    }
+
+    public function RgbColor(ordinal:int, name:String)
+    {
+        _ordinal = ordinal;
+        _name = name
+    }
+
+    public static const RED:RgbColor = new RgbColor("red");
+    public static const GREEN:RgbColor = new RgbColor("green");
+    public static const BLUE:RgbColor = new RgbColor("blue");
+}
+
+var myColor:RbgColor = someCondition() ? RgbColor.BLUE : someOtherColor();
+...
+switch (myColor.ordinal)
+{
+    case RED:
+        ...
+        break;
+    case GREEN:
+        ...
+        break;
+    default:
+        trace(myColor.name);
+        break;
+}
+\end{verbatim}
+In AS4, this will soon be condensed as follows:
+\begin{verbatim}
+public enum Color { // AS4 code:
+    RED, GREEN, BLUE
+}
+
+var myColor :RbgColor = someCondition() ? RgbColor.BLUE : someOtherColor();
+...
+switch (myColor) {
+    case RED:
+        ...
+        break;
+    case GREEN:
+        ...
+        break;
+    default:
+        trace(myColor);
+        break;
+}
+\end{verbatim}
+
+There are more elaborate patterns for enum constants that have extra
+payload properties, and there are equally powerful syntactic enhancements in
+languages such as Haxe, C\# , Java, and others. We will take further inspiration
+from these and later extend AS4's enum capabilities accordingly as an extension
+of the above.
+
+\subsection{Abstract Classes and Methods}
+The new keyword \code{abstract} is used as an attribute for both classes and
+methods. An {\em abstract} class cannot be instantiated directly. Only its
+non-abstract subclasses can.
+
+An {\em abstract} method must not have a function body and it must not be
+native. The first non-abstract subclass of its declaring class must override it
+with a full method.
+
+Constructor functions cannot be abstract.
+
+A class that contains any abstract method must be declared as an abstract class.
+
+\subsection{Constructor, Method, and Function Overloading}
+AS4 will allow several different constructors with different parameter lists in
+the same class. And then, more generally, methods or functions with different
+function signatures can also have the same name, under certain conditions (to be specified later). This is also known
+as ad-hoc polymorphism, in that the compiler disambiguates direct calls to such
+methods or functions by discerning function signatures at compile time.
+
+\subsection{ActionScript Workers}
+We intend to reintroduce workers and to allow them in every deployement mode in
+AS4, not just in JIT-based deployments as in AS3. It is likely that we will
+update the Worker API to better leverage AS4 language features.
+
+\section{Future Features}
+\label{future}
+Last but not least, let us briefly look further ahead towards features that we
+have not fully designed yet, but that we are particularly keen on introducing to AS4.
+\begin{description}
+\item[Immutable Data Structure Types]
+\item[User-Defined Value Types]
+\item[Generics (Parameteric Polymorphism)]
+\item[Collection Library]
+\item[Module System]
+\item[Multi-Threading]
+\item[Nested Transactions on Versioned Data Structures]
+\item[Data Parallelism]
+\end{description}
+We will elaborate on these once we have completed designs in hand.

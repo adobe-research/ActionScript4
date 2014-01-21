@@ -1,0 +1,595 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\section{Dropped Features Relative to ActionScript 3}
+\label{dropped}
+In this section we list features of AS3 that are being
+dropped in AS4, motivate why they are being dropped, and suggest
+ways of porting AS3 code that relies on those features to AS4.
+
+\subsection{The \code{with} Construct}
+
+AS3 supports \code{with} statements \`a la ECMAScript 3. Such
+statements introduce dynamic scoping in the language, as the following example shows.
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+function f(o:Object) {
+    var x:int = 6; // declares local variable x
+    var y:int = 42;
+    with(o) {
+        x = 7; // updates o.x instead of x
+        y = 0;
+    }
+    print(x, o.x); // 6, 7
+    print(y); // 0
+}
+f({x : 6}); // passes an object with property x
+\end{verbatim}
+\end{minipage}
+
+Dynamic scoping has several drawbacks:
+
+\begin{itemize}
+
+\item Dynamic scoping is expensive to implement, since it requires
+maintaining a chain of run-time objects (a.k.a. scope chain) for
+resolving lexical references.
+
+In particular, dynamic scoping makes function closures (run-time representations of functions that are passed by
+value) heavyweight, since a function closure must capture the scope chain that is in effect
+at the point of function definition.
+
+But closures are often used to pass handlers in
+event-based programming.
+
+Furthermore, going forward, we want to encourage people to use closures
+(as part of a move to parallel programming using maps, for example).
+
+Finally, lightweight closures are required to implement our new object
+initialization protocol (see section~\ref{construct2}).
+
+\item Dynamic scoping also causes the compiler to ignore static errors, thereby
+requiring dynamic checking to guard assignments to variables, to maintain type
+safety, and therefore security, at run-time.
+In other words, if we cannot ensure that a variable of type $T$ will always hold
+values of type $T$, then the dynamic compiler / VM cannot safely allocate space
+for the variable based on $T$ without guarding assignments to that variable;
+such guards potentially degrade performance.
+
+\end{itemize}
+
+It is instructive to note that for similar reasons, EcmaScript 5 strict mode
+makes it a syntax error to use \code{with} statements.
+
+The main benefit of dropping \code{with} statements is that we recover
+lexical scoping, which enables compile-time optimizations.
+
+\begin{itemize}
+\item Lexical scoping is efficiently implementable by relying on a flat, compile-time map over
+variables (where variables declared in inner scopes shadow variables
+declared in outer scopes). This considerably simplifies and improves
+the performance of name lookup.
+
+\item Lexical scoping allows the compiler to eliminate dynamic checking on
+assignment to variables in scope. This is a big performance
+win. In fact, it is unfortunate that statically typed AS3 programs
+do not enjoy this benefit, since this performance win is part of the promise of
+static typing in general. Indeed the primary goal of static typing is
+proving, at compile-time, that dynamic typechecking is redundant:
+statically typed programs do not violate type safety.
+
+\end{itemize}
+
+A slow, but mostly functional hack for porting code that relies on
+\code{with} statements is as follows. Code inside a
+\code{with} block for object \code{o} can be transformed so that
+every lexical reference \code{x} is rewritten to a conditional that checks
+whether \code{x} can be found in \code{o} and branches to either
+\code{o.x} or \code{x}. Essentially, this amounts to inlining the
+lookup logic inside \code{with} statements.
+
+Note that the keyword \code{with} is no longer required, although we may want to
+reserve it for future repurposing.
+
+
+\subsection{Namespaces and E4X}
+
+In AS3, namespaces enable a form of dynamic overloading, where different functions
+with the same name may be defined in different namespaces and called
+by supplying the namespaces at run time. Namespaces were introduced as
+part of the EcmaScript 4 effort, which was eventually abandoned (so
+that namespaces never made it into other JavaScript implementations).
+
+Namespaces unify a lot of concepts in AS3: packages, access
+control modifiers, API versioning. However, arguably all of those
+concepts can be readily implemented without namespaces. At the same time, there do not seem to be existing
+applications that exploit the full expressive power of namespaces: for
+example, namespaces could provide a powerful mechanism to do
+capability-based programming, but no such framework seems to be in use by
+the AS3 developer community. As such, namespaces seem like ``a hammer
+looking for a nail'' that everybody pays for but only few, if at all, use.
+
+The design and implementation of namespaces in AS3 suffer from many problems:
+
+\begin{itemize}
+
+\item When combined
+with static binding of function calls to function definitions based on
+static types, namespaces have several unintuitive implications, as the
+following example shows.
+
+
+\begin{verbatim}
+namespace N1; namespace N2;
+class A {
+  N1 function f() { print("in A"); }
+}
+class B extends A {
+  N2 function f() { print("in B"); }
+}
+
+use namespace N1; use namespace N2;
+// adds {N1,N2} to the set of possible qualifiers for every lexical reference
+
+var b:B = new B();
+b.N2::f(); // in B
+b.f(); // in B
+// desugars to b.{N1,N2}::f(), which early binds to b.N2::f() because b:B
+
+var a:A = b;
+a.N1::f(); // in A
+a.f(); // in A
+// desugars to a.{N1,N2}::f(), which early binds to a.N1::f() because a:A
+
+var c:* = ... ? a : b;
+c.f(); // in B
+// desugars to c.{N1,N2}::f(), which late binds to c.N2::f() because c is a B-object
+// this means that we cannot infer c:A
+\end{verbatim}
+
+Thus, namespaces preclude type inference for optimization:
+any precision lost when doing type inference may cause semantic
+unsoundness, i.e., may change the behavior of the
+program. Unfortunately, in an object-oriented language, subtyping
+is a key characteristic, so losing precision via subtyping is common and in fact
+desirable: it is not reasonable to require tracking exact types.
+
+\item Furthermore, namespaces make references heavyweight: every reference consists of
+not just an identifier but, in the worst case, a set of namespaces
+that need to be resolved at run time; such references may be ambiguous
+(i.e., they may resolve to different definitions), and throwing errors
+when they are ambiguous requires \emph{all} definitions that possibly
+match to be
+considered during name resolution (as opposed to just finding
+\emph{some} definition that matches).
+
+\item Finally, it is painful to specify, understand, and implement
+  namespaces. For example, it is tedious to work out what happens when
+  namespaces are themselves defined in namespaces, which are in turn ``opened''
+  in some order (via \code{use namespace'}; see the AS3 language specification
+  for details on this and other issues. Not surprisingly, the AS3 compiler has
+  numerous bugs around namespaces. Furthermore, the VM has several notions of
+  names, including multinames and run-time qualified names, that add subcases to
+  several core bytecodes; see the AVM2 overview for details. (In fact, it is a
+  fair claim that almost nobody inside Adobe enjoys a full understanding of the
+  internals of namespaces, as evident from numerous misunderstandings that keep
+  coming up in various discussions on the topic: a situation that is untenable
+  going forward.)
+\end{itemize}
+
+The main benefits of dropping namespaces are:
+
+\begin{itemize}
+\item huge reduction in complexity in the language specification and
+  the VM implementation;
+\item performance improvements (both in time and in space) due to
+  streamlining of
+  names and the process of name lookup;
+\item soundness of type inference, i.e., the run-time
+  semantics of the language does not depend on the precision of
+  compile-time type information (which is crucial in a language with
+  dynamic typing).
+\end{itemize}
+
+As long as a function defined in a namespace is always referenced by
+explicitly mentioning the namespace (or, all references to it are statically
+bindable), the namespace can be simulated by
+an extra parameter taken by the function and a corresponding extra
+argument passed to every call of the function.
+
+Note that the keywords \code{namespace} and \code{use} become redundant, as do
+the operator \code{::}.
+
+In AS3, packages are encoded with namespaces (with package
+``imports'' encoded by namespace ``uses''), and access controls such as
+\code{public}, \code{protected}, and \code{private} are also encoded with
+namespaces. In AS4, packages and access controls are primitive
+concepts, as in Java and C\#.
+
+See section~\ref{sec:packages-access-controls} for more detail on packages and access control.
+
+Configuration constants, which dictate conditional compilation, have
+thus far been defined in a special namespace \code{CONFIG}. The AS4 syntax
+for conditional compilation is explained in section~\ref{sec:conditional-compilation}.
+
+%To aid porting, we can provide XML libraries that existing code can be
+% rewritten to use.
+
+Without namespaces, E4X cannot stand on its own, so we remove
+it. Consequently, we also remove the associated \code{XML}, \code{XMLList}, and
+\code{QNames} classes. Removing E4X also means
+removing a lot of cruft from the syntax (see section~\ref{redundantOperators}).
+
+\subsection{Global Object and Package-Level Variables and Functions}
+\label{GlobalObject}
+There is no notion of a global object in AS4, nor are there any package-level
+variables or functions. Instead, there is a {\em main class}, which is anonymous
+and is expandable. It is also prepopulated with a few convenience methods such as \code{trace()}.
+
+See section~\ref{programStructure} about program structure for further
+details.
+
+\subsection{Functions That Implicitly Bind \code{this}}
+
+In AS3, all functions, including non-method functions (e.g., anonymous
+functions, nested functions) implicitly take an additional \code{this} parameter.
+
+\begin{itemize}
+\item Thus, all functions can be used as methods, by attaching them
+  (explicitly or implicitly) to objects. The
+calling convention is such that all calls pass an additional \code{this}
+argument, which means that non-method functions are needlessly expensive,
+even though such functions are expected to become more common as we
+encounter more parallel-friendly code. Also, when there is no explicit \code{this}
+argument, currently the global object is
+implicitly passed, so without a
+global object (see above) we are left with an incomplete feature.
+
+\begin{verbatim}
+function F() { this.x = 0; }
+var o:Object = { f: F }; // this in F binds to o
+o.f();
+print(o.x); // 0
+o.x = 1;
+{ f: F}.f(); // this in F binds to new object
+print(o.x); // 1
+\end{verbatim}
+
+\item Furthermore, all functions can be used as constructors for new
+objects, but without prototypes (see below), the utility of this
+feature is greatly diminished.
+
+\begin{verbatim}
+function F() { this.x = 0; }
+var o:Object = new F(); // this in F binds to o
+print(o.x); // 0
+\end{verbatim}
+
+\end{itemize}
+
+In AS4, the keyword \code{this} may appear only in an instance method,
+and may be arbitrarily nested inside other functions. Functions that
+are not instance methods do not bind \code{this}, although they may
+have \code{this} in scope when they are nested inside instance
+methods.
+
+In AS4, the keyword \code{new} must be followed by a class name
+resolved at compile-time.
+
+Furthermore, functions as constructors do not serve as ``cast''
+operators. The cast operator in AS4 is \code{as}, whose semantics is
+modified to throw an error upon cast failure (rather than returning
+\code{null}, which is not type-safe since \code{null} is not a valid
+value of all types, in particular value types). The \code{as} operator
+must be followed by a type, which could be a value type or a class
+name.
+
+Complementing \code{as} is the operator \code{is}, which must also be
+followed by a type. AS4 maintains the invariant that \code{v is T} if
+and only if \code{v as T === v}, for any compile-time type \code{T}
+and run-time value {v}.
+
+In a later AS4 version, we may provide instance methods of
+the \code{Class} class corresponding to \code{new}, \code{is}, and \code{as}, so
+that such operations can be applied to types computed at run-time.
+
+The main benefits of dropping \code{this}-bindable functions is that
+closures and the calling convention becomes more lightweight, and
+thus, more efficient.
+
+Functions that implicitly take \code{this} as a parameter can be
+simulated by methods in corresponding hidden classes.
+
+\subsection{The \code{undefined} Value}
+
+AS3 supports \code{undefined} as the only value of type
+\code{void}; it parallels \code{null}, which is a valid value of type
+\code{Object}. The type \code{*} includes \code{void} and
+\code{Object}; thus both \code{undefined} and \code{null} are valid values of type \code{*}.
+
+The value \code{undefined} arises in the following cases in AS3:
+
+\begin{itemize}
+
+\item Whenever a dynamic property is not found in AS3, \code{undefined} is returned.
+
+In AS4, missing dynamic properties are denoted by \code{null} instead.
+
+\begin{verbatim}
+var o:* = { };
+print(o.x); // undefined in AS3, null in AS4
+\end{verbatim}
+
+\item In AS3, arrays can have ``holes,'' which are populated by
+  \code{undefined}. Holes cannot exist in AS4 arrays.
+
+\item Whenever a function of return type \code{void} is called in AS3,
+  \code{undefined} is returned as the result.
+
+In AS4, we throw a compile-time error if it is clear at compile time that a
+value of type \code{void} is being expected (because there is no such
+value anymore); on the other hand, if it is not clear at compile time
+that such a thing may happen, but
+it still happens at run time, we throw a run-time error.
+
+\begin{verbatim}
+function f():void { }
+var r:* = f(); // OK in AS3, compile-time error in AS4
+print(r); // undefined
+
+var g:* = f;
+print(g()); // OK in AS3, run-time error in AS4
+
+function h():* { return; } // OK in AS3, compile-time error in AS4
+\end{verbatim}
+
+As a corollary of compile-time enforcement, return statements are linked to the type signature
+of the enclosing function: if the return type is the dynamic type,
+then having a \code{return} statement without an expression is a
+compile-time error.
+
+As an elaboration of run-time enforcement, if a function is called through the
+dynamic type, then the compiler makes it explicit in the emitted
+bytecode for the (slow) function call whether it expects a result or
+not (e.g., emitting \code{call} vs. \code{callvoid}); and as part of the
+implementation of the bytecode, the function signature is looked up to
+throw a run-time error whenever a value of type \code{void} is
+expected.
+
+\end{itemize}
+
+The main benefits of dropping \code{undefined} are reduced complexity
+in the VM, and a uniform interpretation of \code{*} as a boxed
+representation for value or reference types without additional conversion.
+
+By closing all loopholes for creating uninitialized variables, there is
+no reason left to keep \code{undefined} in addition to \code{null}. In AS4,
+variables that are not explicitly initialized and are of type \code{Object} or
+one of its subtypes are initialized to \code{null}. All variables of
+non-\code{Object} types are initialized to a zero-like default value. The
+remaining possibility is a variable of type \code{*}. By defining its default
+value to be \code{null}, there is no room left for \code{undefined}. It would
+just act as a ``second kind of \code{null}'', which is superfluous and just
+complicates the language.
+
+
+Note that without the \code{undefined} value, we do not have the unary
+\code{void} operator.
+
+\subsection{Prototypes}
+\label{prototypes}
+Prototypes provide yet another inheritance mechanism for objects (parallel to the usual inheritance mechanism provided by classes), as
+the following example shows:
+
+\begin{verbatim}
+class A {
+  var x:int = 6;
+}
+class B extends A {}
+
+B.prototype.x = 42;
+B.prototype.y = 7;
+A.prototype.y = 42;
+A.prototype.z = 0;
+
+var o:* = new B();
+print(o.x,o.y,o.z); // 6, 7
+\end{verbatim}
+
+Prototypes have several drawbacks when they coexist with classes.
+
+\begin{itemize}
+\item To support prototypes, every object in the language carries an
+extra reference to another object, irrespective of whether it is an
+instance of a dynamic class or not.
+
+\item Furthermore, the fact that some in-built methods of \code{Object} are
+dynamic properties accessed via prototype inheritance rather than class inheritance
+has several unintuitive implications.
+
+\begin{verbatim}
+class A {
+  // shadow, not override! (trait properties shadow dynamic properties)
+  public function toString() { return "some A"; }
+}
+class B extends A {
+  // override! (trait properties override trait properties)
+  override public function toString() { return "some B"; }
+}
+class C {
+  // not shadow! (dynamic properties are public)
+  function toString() { return "some C"; }
+}
+class D {
+  // run-time error! (dynamic properties are ignored by compile-time checks)
+  public var toString = null;
+}
+print(new A()); // some A
+print(new B()); // some B
+print(new C(), new C().toString()); // [object C], someC
+print(new D()); // error!
+\end{verbatim}
+
+\end{itemize}
+
+As long as prototype chains are fixed, prototype inheritance can be
+simulated by class inheritance.
+
+By dropping prototypes, objects become smaller, and in-built methods of
+Object are declared as trait properties in the class itself.
+
+Note that the keyword \code{instanceof} is dropped.
+
+% Early binding of methods on Object implies that names of Object
+% instance methods become unusable as dynamic property names.
+% { toString: true}
+
+\subsection{Dynamic Classes}
+\label{dynamicClasses}
+In AS3, every non-final static class can be extended by a dynamic class, which
+features dynamic properties. This approximates JavaScript, but falls short of
+modelling its entire generality, because dynamic properties in AS3 do not shadow
+static properties nor can they replace them nor can static properties be
+modified or removed dynamically.
+
+In order to make the class system fit into the prototype system, AS3 models all
+functions as methods so that they can be assigned as values to properties. This
+means that every function has an implicit \code{this} parameter, which
+dynamically binds to the receiver object upon method invocation. And in case of
+a function invocation it dynamically binds to the global object.
+
+In AS4 we cannot continue this scheme, because it is inefficient to have an
+extra parameter for every function call and because there is no such thing as a
+global object any more.
+
+\subsection{\code{ApplicationDomain}}
+
+In AS3, global definitions are organized into a hierarchy of application domains
+at run time, with complicated lookup and binding rules. This feature is useful
+in combination with dynamic loading.
+
+Initially, both dynamic loading and application domains are absent in AS4.
+However, we plan to introduce these capabilities into AS4 later,
+after moderate redesign relative to AS3.
+
+\subsection{The \code{Array} Class}
+
+We eliminate the AS3 class \code{Array}. The class name is reused for fixed-length arrays (see
+section~\ref{fixed-length-arrays} and appendix~\ref{Array}), which only retain a small subset of the functionality of
+AS3 arrays.
+
+\subsection{The \code{Proxy} Class}
+
+We eliminate the \code{Proxy} class in AS4, mainly because its only
+existing uses seem to be in Flex. We will re-design \code{Proxy} in
+a later version of AS4.
+
+
+\subsection{The \code{include} Construct}
+
+The \code{include} feature in AS3 allows fragments of code to be
+spliced into larger fragments of code. This feature is
+problematic for tooling; furthermore, the AS3 parser has several bugs around
+this feature. Thus, we drop it in AS4.
+
+\subsection{Automatic Semicolon Insertion}
+
+The optionality of semicolons causes complexity in the language definition and
+the lexer/parser. The language specification needs to be extremely pedantic
+about where a line break can occur or not to disambiguate what is meant (where
+the presence or absence of a required semicolon would immediately disambiguate).
+Overall, this feature in AS3 breeds implementation errors as well as, in some
+cases, program understanding errors.
+
+\begin{verbatim}
+var x = foo // ;
+(y as T).bar();
+\end{verbatim}
+Without the semicolon, the above code could be mistaken for:
+\begin{verbatim}
+var x = foo(y as T).bar();
+\end{verbatim}
+
+
+\subsection{Assignment Expressions}
+
+In AS4 assignments, e.g., \code{x = e}, \code{x += e},
+\code{o.x = e}, \code{o.x += e}, are statements, not
+expressions. This means that they cannot appear inside
+conditions, argument lists, and so on.
+
+This restriction avoids common programming errors.
+\begin{verbatim}
+if (x = y) { ... }
+\end{verbatim}
+We are aware that this problem is greatly mitigated by the fact that there are no implicit conversions between values of
+type \code{bool} and numeric types. But we also believe that avoiding inline assignments in general fosters program
+readability and understanding, especially when programming in the large in teams.
+
+Last but not least, the above restriction paves the way for named parameter passing in a future version of AS4.
+\begin{verbatim}
+function foo(x:int,y:String) { ... }
+foo(y = "..", x = 5);
+\end{verbatim}
+
+\subsection{Rest Parameters}
+
+We eliminate rest parameters in AS4. Calling a function with rest
+parameters involves hidden costs that are not apparent to the
+programmer. In particular, any rest arguments need to be boxed and packed into
+an array. We believe that the programmer is better served when the full
+cost is explicit at the call site, i.e., the function takes an explicit
+optional array parameter instead.
+
+\subsection{List of Dropped Operators}
+\label{redundantOperators}
+The following AS3 operators are redundant in AS4, and are therefore dropped.
+
+\begin{description}
+\item [unsigned right shift \code{>>>}] -
+    cf. overloading of right shift, see section~\ref{sec:operators}
+
+\item [\code{void}] -
+    cf. dropped feature: undefined
+
+\item  [\code{instanceof}] -
+    cf. dropped feature: prototypes; operator \code{is} can be used to determine
+    whether a value is an instance of a given class
+
+\item [\code{typeof}] -
+    to be replaced by a method in a reflection package
+
+\item [\code{delete}] -
+    it is no longer possible to remove object properties
+
+\item [\code{in}] -
+    the structural composition of objects can no longer be inspected without using the dedicated reflection API (see
+    appendix~\ref{reflection})
+
+\item [type casting operator \code{T(e)}] -
+    replaced by the operator \code{e as T}
+
+\item [attribute operator \code{@}] -
+    repurposed for metadata, cf. dropped feature: E4X
+
+\item [descendant operator \code{..}] -
+    cf. dropped feature: E4X
+
+\item [namespace qualifier operator \code{::}] -
+    cf. dropped feature: E4X
+
+\item [the rest parameter indicator \code{...}] -
+    cf. dropped feature: rest parameters
+\end{description}

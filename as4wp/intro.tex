@@ -1,0 +1,367 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\section{Introduction and Motivation}
+The ActionScript\textsuperscript{\textregistered} language has not changed since
+2006. At the time of this writing it is still in the same version 3 without any
+significant updates.
+But the demands on the Adobe\textsuperscript{\textregistered}
+Flash\textsuperscript{\textregistered} platform and on its language have
+shifted. We now introduce a new version of ActionScript that is oriented at the
+requirements of larger and more performance-critical applications across a wider
+range of deployment scenarios than anticipated for its predecessor: ActionScript
+4.
+
+The Flash platform has a rich ecosystem into which it deploys programs in a
+variety of forms: packaged applications with a captive runtime, loaded
+applications on a standalone Flash Player or on a full Adobe
+AIR\textsuperscript{\textregistered} installation, dynamically loaded
+applications in web browser plugins. Providing a true cross-platform developer
+experience across these different scenarios as well as the related ubiquity are
+primary attractions that give the Flash platform a great competitive edge.
+
+In the following we analyze the prospects of each deployment mode and how it
+sets the stage for our language design. Next we derive guidance from major
+technological trends and from our focus audience: game developers.
+Then we summarize all of the above in high level guidelines for our language
+design.
+
+\subsection{Smartphones: Apps, Resource Constraints}
+The dominant distribution form of programs on smartphones is ``apps'', and the
+availability of Flash Player in mobile browsers is severely limited. Apps are
+statically compiled and even statically linked. This means that AS4 needs to be
+well-suited for static compilation and cannot rely on dynamic optimizations to
+achieve acceptable performance. This requirement is exacerbated by smartphones
+having relatively weak compute power. Furthermore, power consumption is a major
+concern and code performance improvement is a common prescription for this,
+since quicker execution reduces the amount of time any given stretch of code
+requires power.
+
+For app deployment, we should continue to offer a form of native extensions that
+can employ functionality specific to one native platform in a non-portable way.
+
+\subsection{Tablets: Middle Ground}
+Initially, tablets are like a large smartphone without a phone function, or more
+precisely like a large iPod Touch. So they emphasize {\em apps} over {\em web}
+just like smartphones. But we have to be prepared for {\em web} also. Quite
+possibly, tablets will supplant large parts of PC install base, and then this will perpetuate the
+requirements we are facing now for desktops.
+
+Already, we are seeing tablets with physical keyboards, which makes them a lot
+more similar to laptops. And for people who enjoy virtual keyboards more than
+physical ones, one can argue that tablets have been similar to laptops already.
+So either way, the result is pretty much equivalent to a laptop with touch
+input. And touch input is just arriving on laptops and even regular desktops,
+too. In other words, the differences between tablet, laptop, and desktop are
+blurring. As a result of this, we will continue to face devices with PC-class
+capabilities, in whatever physical shape, and this will remain relevant.
+
+The real question is what artificial restrictions will be imposed on these
+platforms regarding runtime deployment, application code deployment, and dynamic
+code generation. Recently, we have experienced a trend towards more close
+control. Furthermore, Flash Player deployment is also constrained by our own
+capacity to conduct and support porting efforts, especially in the relatively fragmented
+mobile space, including tablets. However, for all we know, there will continue
+to be at least some tablets that admit Flash Player to browsers.
+Since it is hard to predict market share and constraints concerning all platform owners
+for extended periods of time, we must stay nimble. This means keeping support for
+JIT deployments enabled, even for tablets.
+
+On the other hand, there are more and more cheaper, low-end tablets. This
+perpetuates the alignment with smart phones. Apps are here to stay as
+deployment form as well.
+
+So unsurprisingly, we see tablets positioned in the middle between smartphones
+and desktop, requiring both AOT and JIT deployment. Furthermore, the performance
+arguments made in reference to smartphones apply typically also to tablets,
+though lessened by their relatively larger compute and battery capacity.
+
+\subsection{Desktop: High End Clients}
+No matter how successful tablets become, desktops stay relevant. Many uses are
+better served by their larger form factor and their superior compute power and
+being mobile is not always required. Furthermore, the monetization of software
+and services on mobile devices is relatively weak, even though the cross-over
+point for mobile device numbers trumping PC numbers has been reached.
+
+By definition, the desktop device class carries the high end for compute clients
+(including workstations). There did not use to be a choice between PCs and
+mobile devices. Now that there is, the higher investment in a PC implies
+indications concerning the user's objectives. Why would anyone choose a PC over
+a tablet or smartphone?
+\begin{itemize}
+  \item Performance
+  \item Screen real estate
+  \item Memory
+  \item Storage and storage bandwidth
+  \item Network bandwidth
+\end{itemize}
+
+Today, the deployment of Flash Player is almost unrestricted on desktops. The
+plugin is virtually ubiquitous. And it requires a JIT to perform well. This
+gives us the opportunity to put features into our language that provide the
+ultimate performance experience, fully exploiting dynamic optimization.
+
+For JavaScript, and also for ActionScript until now, dynamic compilation is
+first of all a compensating measure for inherent performance impediments.
+Aiming to eventually make performance a competitive differentiator for
+ActionScript, we now prefer to drive performance from a language design position
+that lets performance optimizations take off from higher ground.
+
+Today's desktops have such abundance of memory that there is no question that we
+have to support 64-bit computing. This has to be taken into account for mass
+data types in ActionScript.
+
+\subsection{Servers: Outlook}
+For various reasons, the Flash platform is a client-centric technology without
+significant deployment on servers. Among those reasons, insufficient performance, the lack
+of concurrency, and the resulting poor hardware utilization have to be seen as
+major impediments. It is expected that these downsides will be mitigated and
+eventually overcome by our efforts on the client side. At least from a language
+and VM perspective there should then be no barrier to running (large) AS4
+applications on servers. Besides, this also applies to server-side AS4
+in cloud computing.
+
+If and when AS4 will be running well on servers, the same arguments that are
+made today on desktops wrt. performance, memory, storage, and bandwidth will
+apply, only more so.
+We can count on 64-bit and multi-core requirements. Furthermore, our language
+design should be on a trajectory that can lead to efficient expression of distributed
+programs.
+
+\subsection{Multi-Core and Many-Core}
+Mobile devices increasingly feature multi-core CPUs and on desktops they are
+already common place. With today's single-threaded ActionScript or even with AS
+``workers", this means unused hardware, poor utilization, categorically
+restricted performance. Furthermore, power efficiency is crucial on mobile
+devices and performance is a key driver for power savings. Combining these two
+observations, we cannot afford to leave the available hardware concurrency
+presented by multi-core CPUs untapped.
+
+With frameworks like Stage3D and Starling, Flash Player is successful in
+harnessing the power of GPUs for rendering and making it available in a cross-platform fashion.
+But less graphics-oriented compute tasks are underserved. We need to tap more
+into the available parallelism on GPUs and GPGPUs to drive performance beyond
+multi-core capacity.
+
+We are working towards integrating concurrent/parallel programming seamlessly
+into ActionScript. This already affects earlier features of AS4. We are strongly
+motivated to facilitate functional programming style. In particular, this
+includes suppressing mutability of values where possible, i.e. wherever
+tolerable.
+
+\subsection{HTML5: Redividing the Application Space}
+HTML, CSS, and JavaScript have become more expressive and performant and capable
+of fulfilling roles that used to be covered by Flash Player alone. Many
+analysts, bloggers and article commenters claim that the Flash platform will or
+at least should be displaced {\em completely}. Yet
+there is no compelling \code{technical} reason that reduces the remaining realm of the Flash platform
+overwhelmingly, and it can grow without serious challenge in areas where
+HTML/JavaScript will never be able to catch up. 
+JavaScript programming has at least these limitations:
+\begin{itemize}
+  \item It scales poorly in program size and in team size.
+  \item IDE support is hindered by dynamic typing.
+  \item Debugging effort is multiplied by the lack of static checking.
+  \item The achievable performance ceiling is limited by dynamic features.
+  \item It is ill-suited for static compilation and thus JavaScript apps
+  often cannot be competitive with native apps.
+  \item It is all too easy to write badly performing code, to fall into
+  performance anti patterns.
+  \item Innovation progress is throttled by standardization.
+  \item Its implementation is fragmented and there are economic incentives for
+  its standardization members and for its implementors to fragment it as well
+  as to reconcile it. At the very least, we can expect its fragmentation to
+  oscillate.
+\end{itemize}
+Despite all this, HTML5/JavaScript is here to stay. One cannot not serve the
+Web! Here it is our task to provide a superior alternative where HTML5/JavaScript is
+bound to lack. This amounts to a vast space, not just a niche.
+The Flash platform should be able to continue its role as technological trail
+blazer.
+
+There is still a large overlap in the application space between HTML5
+and the Flash platform and we do not expect it to shrink away entirely. We
+should be prepared to continue seeing Flash technologies used for general
+purpose web programming, ads, banners and so on. We should therefore keep a certain amount of dynamic features to
+interoperate with web technologies and to provide smooth onramping of web programmers to
+ActionScript 4. The latter can also be facilitated with gradual
+typing and type inference.
+
+However, even though we position Flash technologies as a general purpose
+programming platform, including web programming, our focus of attention has
+moved on to the following topic.
+
+\subsection{Game Development}
+
+Gaming is the ideal technological focus area for further developing the Flash
+platform.
+\begin{itemize}
+  \item The Flash platform already enjoys a large user base in web and app
+  gaming.
+  \item This is a fast growing, revenue rich product area.
+  \item Adobe as a creative design company must play in this space, since it is
+  the pinnacle of creative design, posing the greatest challenges.
+  \item The requirements for game programming subsume those of most other disciplines.
+        If we master gaming, then the technology developed for it will be
+        applicable to virtually everything else.  This can be seen as
+        trickle down tech transfer from the most demanding area of all.
+  \item Game developers are early adopters, more forgiving wrt. initial problems
+  in newly developed offerings than most other communities.
+\end{itemize}
+
+Besides media asset creation, game programming can generally be categorized into
+these main areas:
+\begin{center}
+\begin{tabular}{ | l | l | l |}
+\hline
+{\em Category} & {\em Example Tasks} & {\em Typical Programming Styles} \\
+\hline Game Logic & player actions, story line/script, UI, events &
+object-oriented, imperative \\
+\hline Numeric computation & physics, strategy, constraint
+solving & functional, imperative \\
+\hline Rendering & 3D/2D shading, sprites, video, images, effects & declarative,
+constructive
+\\
+\hline Communication & network / distributed programming & object-oriented,
+reactive
+\\
+\hline
+\end{tabular}
+\end{center}
+In the short term, and in the scope of this text, we concentrate on the former
+two of these.
+
+\subsubsection{Social Gaming}
+Social games are booming. The market for them has become very competitive. The
+effort going into each individual game development is high. Team sizes often
+reach into several dozen developers, not rarely to more than a hundred.
+This clearly is programming in the large, which could benefit greatly from
+better language and tool support.
+
+Frame rates convert into dollars. Here once again, improving Flash
+Player performance is key.
+
+\subsubsection{AAA Gaming}
+
+Some game engines run thousands of different tasks in a quasi-concurrent
+fashion. To allow developers to map these directly to threads way beyond the
+point of oversubscribing multi-core parallelism, we aim to offer a two-level
+thread model in a later version of ActionScript.
+
+We also need to leverage all available hardware for numeric computation,
+whereas rendering is being served sufficiently well with API approaches.
+
+ActionScript game code can be mixed with code written in other languages
+such as C++ when compiling the latter with FlasCC.
+
+\subsection{Conclusions and Goals}
+From the above, we gather these requirements:
+\begin{description}
+\item[Cross-platform:] Cross-platform development remains the main attractor,
+even though the dynamics of device and OS regulations
+have shifted our deployment modes in recent year as follows.
+\item [Both JIT and AOT:] The range of application deployment targets clearly
+indicates that both JIT and AOT are here to stay for the foreseeable future and
+that we should stay nimble in that regard anyway. This means that if
+AS4 is supposed to be a high performance language, it needs to be shaped so that
+great performance is possible without relying on dynamic optimizations.
+\item[Maximum performance:] In order not only to catch up with competitors,
+but to make performance a defendable differentiator for AS4, we have to design
+it so that virtually nothing is in the way of performance maximization.
+Especially under the aspect of AOT compilation this means that static typing
+has to be the default setting and that it has to be absolutely stringent
+wherever possible unless the
+developer opts out explicitly (by using the \code{*} type). In general, we favor making
+non-dynamic features fast over whatever the consequences for dynamic features
+are. We also arrange the type hierarchy so that the source compiler can arrange
+autoboxing. Operations on primitive types do not have inherent control
+flow (when statically typed). Furthermore we introduce fixed-length
+arrays, and we plan for multi-dimensional arrays with VM-determined
+data layout.
+\item[Machine types:] Primitive data types must translate directly to hardware
+operand types to provide maximum performance, but also to facilitate
+mapping C data types to ActionScript via FlasCC, and to enable us to
+develop a foreign interface. The latter will eventually make native extensions
+simpler to write and better performing, and it is intended to greatly simplify
+the implementation of the Flash Platform itself. To these ends, we should also
+offer user-defined value types that aggregate primitive types.
+\item[Hardare utilization:] We carefully design the first version of AS4
+for the later introduction of high-performance multi-threading and parallelism features,
+since offering these is necessary to provide competitive hardware
+utilization.
+\item[Programming in the large:] Competitive pressures, in particular in game
+development, drive our developers towards larger efforts that require more
+coordination and more quality frontloading. This also enforces our choice to
+support static strong typing. Furthermore, our core language design must be
+suitable for the introduction of generics (parametric polymorphic typing) in the
+future. This will enhance expressiveness while maintaining static typing.
+\item[Both object-oriented and functional:] Large program organization
+benefits from object-oriented style and a variety of well-known related
+patterns. Yet we want to promote functional programming style for
+more algorithmic program parts, especially when these involve concurrency.
+Reconciling the two styles, we aim at making object-oriented program parts more amenable to functional programing.
+Concretely this dictates giving immutability preference over mutability
+whenever possible. To this end we introduce two-phase constructors, which
+facilitate declaring and guaranteeing truly constant object fields, virtually
+without any loss of generality wrt. what constructors can express. Besides this
+feature, we are generally promoting immutability throughout the language to make
+developers more accustomed to paying attention to it. For example, function parameters are by default
+immutable in AS4.
+\item[Small and large memory:] We can future-proof certain mass data types like
+arrays and strings by allowing them to range over 64 bits while at the same time
+allowing the VM to choose a space-efficient representation on constrained
+devices. However, we should also offer the usual 32-bit variants, since small
+arrays and strings are common.
+\item[Supplemental dynamic features:] Every static type system has its limits
+wrt. expressiveness. We should supplement it with select dynamic features and a
+comprehensive reflection API. But we must be careful to not compromise our other
+goals by doing so.
+\item[Type inference:] Static typing does not always require stating types explicitly. The most
+suitable types that one might have written can more often than not be discovered
+by the compiler and inserted automatically. This mitigates the typing effort and
+visual impact caused by static typing compared to dynamic typing. However, type
+inference can also be useful even in dynamically typed code contexts, providing opportunistic
+performance improvements.
+\end{description}
+
+Adobe is not only going to update the ActionScript language but also going
+to renovate the libraries in Flash Player, moving from V11 versions to V12. In
+both cases, there will be a compatibility break that affects the source code level as well as the binary level.
+AS3 will not run on V12 and AS4 will not run on V11. AS4 and V12 will be a fresh new reinvention of the Flash
+platform, not just an incremental upgrade.\footnote{AS3 and V11 content will continue to run in Flash Player, which will dynamically
+detect which runtime version to launch.}
+
+However, both the AS4 language and the V12 APIs will look very similar and familiar to existing developers.
+This is of course intentional, to facilitate migration to our new platform version. Yet we believe that given its
+more concise and disciplined design, AS4 will be easier to learn than AS3 for many of those who will come to our
+platform as new developers.
+
+
+\subsection{Overview}
+To fulfil all of the above goals, it became necessary to drop some features from AS3. These are
+discussed in the next section. Other features, while kept, have been modified as explained in
+section~\ref{changes}. In principle, significant portions of AS3 code can be ported to AS4 given this knowledge alone.
+But we are aware that this is temporarily limited by some valued AS3 features having been removed without replacement.
+Eventually, there will be powerful substitutes that fit in well with the new language.
+
+The following sections present new features in AS4. We first describe those designated for an initial release
+(section~\ref{new}), then we sketch the next wave (section~\ref{upcoming}). Finally, we give an outlook on features
+(section~\ref{future}) that are further out in our schedule. This is to provide a first impression of the overall
+direction and significance of the AS4/V12 platform.
+
+The appendix contains implementation notes (section~\ref{impl}) and a listing of base classes and interfaces
+(\ref{base}), which includes core classes in the type hierarchy as well as a new reflection API.
+
+In the remainder of this text we assume that the reader is already familiar with
+ActionScript 3.

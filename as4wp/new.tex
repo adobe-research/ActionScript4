@@ -1,0 +1,909 @@
+% Copyright (c) 2014 Adobe Systems Incorporated. All rights reserved.
+
+% Licensed under the Apache License, Version 2.0 (the "License");
+% you may not use this file except in compliance with the License.
+% You may obtain a copy of the License at
+
+% http://www.apache.org/licenses/LICENSE-2.0
+
+% Unless required by applicable law or agreed to in writing, software
+% distributed under the License is distributed on an "AS IS" BASIS,
+% WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+% See the License for the specific language governing permissions and
+% limitations under the License.
+
+\section{New Features}
+\label{new}
+The following first batch of new features for AS4 provides essentials for:
+\begin{itemize}
+  \item laying a sound foundation for functional programming in an
+  object-oriented setting,
+  \item enabling high performance computing.
+\end{itemize}
+
+\subsection{The \code{let} Declaration}
+In preparation of greater use of concurrency and larger scale
+software engineering in ActionScript, and to help program correctness in
+general, we strive to make the declaration of constant values easy and to make
+immutability the default wherever an explicit indication regarding mutability
+is not given.
+
+In AS3, variables are customarily declared with the keyword \code{var} and constants
+with \code{const}. However, constants are not really guaranteed to be constant,
+i.e. it is often possible to assign a value to them several times and they
+sometimes can be read before written to.
+
+In AS4, we replace the \code{const} keyword with \code{let} and we reserve
+\code{const} for interesting future uses such as making whole data structures
+immutable. We hope that the comparative brevity of \code{let} will encourage
+much more frequent usage than \code{var} and we back up the usefulness of
+\code{let} with these strong guarantees for every variable declared with it:
+\begin{itemize}
+  \item Within each active scope and extent, it has exactly one immutable value
+  that can ever be observed.
+  \item It cannot be read before it is initialized.
+  \item Every control flow path leads to an initialization or to a
+  state in which it is guaranteed that its value will never be read. The latter
+  can for example occur when an exception is thrown between its declaration and
+  its initialization.
+  \item If there are multiple initializations, then the values they assign can
+  differ, but it must be provable at compile time that exactly one will execute
+  in every possible control flow that remains in scope.
+  \item The compiler ensures all of the above by throwing errors wherever any of
+  it does not hold.
+\end{itemize}
+In short: such constants are truly constant. No value mutation can ever be
+programmatically observed. This holds for local variables and for
+class instance fields. Even though function parameters are not preceded by
+either \code{let} or \code{var}, they are always treated as if they were
+declared with \code{let}, i.e. they are truly constant as well.
+
+Both our commitment to promoting immutability and the choice of the keyword
+\code{let} instead of \code{const} are deeply rooted in the design philosophy
+that AS4 is a multi-style language, which is both object-oriented and
+functional. We are aware that \code{const} would be a more familiar keyword for
+most of our existing users and that its name immediately indicates immutability.
+However, the relevance of these arguments fades quickly with the number of
+lines of AS4 code written or read. Looking further ahead, they are outweighed by
+the brevity of \code{let}, which matches \code{var} and provides even
+indentation, and by its stronger association with functional programming.
+This is consistent with our intention to make AS4 surpass today's mainstream
+object-oriented languages (JavaScript, Java, C\#, Objective C, ActionScript
+3) in this important regard: functional programming is no longer a mere appendix to
+object-oriented programming, it is going to be the primary style used for
+algorithm encoding, because it is usually superior in performance and
+correctness. This holds especially in concurrent settings.
+
+Nevertheless, for well-known reasons, object-oriented code is still
+expected to dominate much of programming, as it facilitates programming in the
+large. So in the spirit of greater harmony with functional programming,
+AS4 provides improved support for both static and instance field immutability.
+The above guarantees apply to these as well. Whereas this is straight forward
+for static fields, a novel approach is needed for instance fields to prevent
+situations like the following:
+
+\begin{verbatim}
+class A {
+    function f() {
+    }
+
+    function A() {
+        // compile error in AS4:
+        this.f(); // reads x before initialization!
+    }
+}
+class B extends A {
+    let x:int;
+
+    override function f() {
+        print(this.x);
+    }
+
+    function B(x) {
+        super(); // calls f()
+        this.x = x;
+    }
+}
+\end{verbatim}
+Here, the presumable ``constant'' \code{x} is read before the program assigns a
+value to it. Other program languages typically offer solutions along these
+lines:
+\begin{itemize}
+  \item The variable \code{x} is already pre-initialized with a default value
+  (zero) before any user code runs. This means that two distinct values are observable.
+  Hardly a constant! Although static or dynamic optimization can often determine
+  that most code only sees the variable after its final assignment, considerable user
+  code complications remain.
+  \item The above program is rejected by the compiler as it recognizes that
+        \code{x} is not a true constant. (This is the case in AS4, but
+        see below for why this is problematic and how we solve the problem).
+  \item An enhanced (flow-sensitive/context-sensitive) type system lets \code{x}
+    be addressable only downstream from its
+  initialization statement. In such a system, the above program would still not
+  type check.
+\end{itemize}
+In the latter two cases, the user would be forced to write a factory class. Much
+boilerplate! The next section presents our solution to this
+important problem.
+
+
+\subsection{2-Phase Constructors and Truly Constant Fields}
+\label{construct2}
+In a constructor, every variable field declared by \code{var} is initialized
+with a zero-like default value before any user code in the constructor is
+executed. This holds even when an explicit initializer is given, since it could
+indirectly read the same variable that is about to be initialized.
+Constant fields declared by \code{let} can also have an initializer assignment,
+but the compiler ensures that they cannot be read during the execution of this
+statement.
+
+Constant initialization can be deferred to the constructor body. Still, each
+such deferred constant must be initialized exactly once in every possible code
+path of the constructor. Example:
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+class A {
+    var v :int;
+    let dateStamp :Date = Date.current();
+    let x :X;
+
+    function A(x :X) {
+        this.x = x;
+    }
+}
+\end{verbatim}
+\end{minipage}
+
+The variable field $v$ is initialized to zero. Next, the constant field
+$dateStamp$ is initialized to the current data. Finally, the constant field $x$
+must be initialized in the constructor or the compiler will post an
+error.
+
+In order to support the common programming practice of publishing of \code{this}
+inside the constructor, constructors are split into two phases. In the first,
+default phase, \code{this} can only be used to {\b write} properties of the
+object being constructed. Any read operations involving \code{this} are
+statically rejected, in particular, \code{this} cannot be passed as an argument,
+used to call methods (other than the constructor of the superclass), or aliased
+with other variables. In the second, optional phase, the use of \code{this} is
+unconstrained.  The second phase is expressed in the \code{defer} block.
+Example:
+
+\begin{verbatim}
+class B extends A {
+    let y :Y;
+
+    function B(x :X, y :Y, k: Key, d :Map) {
+        super(x);
+        this.y = computeSomething(x, y);
+        defer {
+            d.add(key, this);
+        }
+    }
+}
+\end{verbatim}
+
+\begin{verbatim}
+class C extends B {
+    let z :Z;
+
+    function C(x :X, y :Y, k: Key, d :Map, z :Z) {
+        super(x, y, k, d);
+        this.z = z;
+        print(d);
+        defer {
+            print(this);
+        }
+    }
+}
+\end{verbatim}
+
+It is of course possible to extend a class with a constructor that has a \code{defer}
+block with a class whose constructor does not have one:
+\begin{verbatim}
+class D extends C {
+    function D(x :X, y :Y, k: Key, d :Map, z :Z) {
+        super(x, y, k, d, z);
+    }
+}
+\end{verbatim}
+
+The \code{defer} keyword creates a closure that captures the current environment
+and schedules this closure to run after all initialization has completed. The
+\code{defer} blocks in an inheritance chain are run in inheritance order.
+
+This new language features accomplishes:
+\begin{itemize}
+  \item No part of \code{this} can ever escape from the initialization part of
+  the constructor.
+  \item It is thus impossible to observe the value of an uninitialized field.
+  \item In the \code{defer} block one can immediately use the constructed object
+  without first leaving the constructor context.
+  \item For many use cases it is therefore not necessary to write a factory
+  method or class.
+\end{itemize}
+
+\subsubsection{Constructor Implementation}
+It is instructive to inspect in more detail how constructors with \code{defer}
+blocks translate to conventional language features. The general form of the
+translation scheme, shown below, relies on closures.
+However, it is important to note that such closures can always be inlined away,
+and an AOT compiler can inline them away at compile time (as illustrated later).
+
+For illustration purposes we pretend here that AS4 already has inline anonymous
+closures. Please be aware that this feature will be introduced in a later
+version and its syntax may change by then. In reality the compiler creates code
+for this behavior directly, without the intermediate step of source code as
+shown here.
+
+%Cannot use verbatim mode, because it suppresses the apostrophies
+\begin{lstlisting}
+static function A.<init>(this :A, x :X) :()=>void {
+    // A's init code:
+    this.v = 0;
+    this.dateStamp :Date = Date.current();
+    this.x = x;
+    return function():void {
+        // A's deferred code
+    };
+}
+
+static function A.<prep>(this :A, x :X) {
+    k = A.<init>(this, x);
+    k();
+}
+
+static function B.<init>(this :B, x :X, y :Y, k: Key, d :Map) :()=>void {
+    k = A.<init>(this, x); // call super
+    this.y = computeSomething(x, y); // B's init code
+    return function():void {
+        k();
+        d.add(key, this); // B's deferred code
+    };
+}
+
+static function B.<prep>(this :B, x :X, y :Y) :()=>void {
+    k = B.<init>(this, x, y);
+    k();
+}
+
+static function C.<init>(this :C, x :X, y :Y, k: Key, d :Map, z :Z)
+                        :()=>void {
+    k = B.<init>(this, x, y, k, d); // call super
+
+    // C's init code:
+    this.z = z;
+    print(d);
+
+    return function():void {
+        k();
+        print(this); // C's deferred code
+    };
+}
+
+static function C.<prep>(this :C, x :X, y :Y, k: Key, d :Map, z :Z) {
+    k = C.<init>(this, x, y, k, d, z);
+    k();
+}
+\end{lstlisting}
+
+And an instantiation statements for each of these classes translate to:
+
+\begin{verbatim}
+a = Heap.allocate(VM.instanceSize(A));
+A.<prep>(a, x);
+
+b = Heap.allocate(VM.instanceSize(B));
+B.<prep>(b, x, y, k, d);
+
+c = Heap.allocate(VM.instanceSize(C));
+C.<prep>(c, x, y, k, d, z);
+\end{verbatim}
+
+The above implements that in case of \code{c}, these phases execute in this
+listed order:
+\begin{enumerate}
+  \item A's init code
+  \item B's init code
+  \item C's init code
+  \item A's deferred code
+  \item B's deferred code
+  \item C's deferred code
+\end{enumerate}
+
+Both the AOT compiler and the JIT can optimize the above code with directed,
+aggressive inlining so that compared to constructors without \code{defer} blocks
+no extra call overhead actually occurs at runtime. To arrive at such deep
+inlining, the optimizer needs to be capable of relatively simple escape analysis
+and of reverting closure abstraction.
+
+In particular, the AOT compiler does not need to emit intermediate closures at
+all. For example, the constructor for class \code{C} above can be
+inlined to the following:
+
+\begin{minipage}{\linewidth}
+\begin{verbatim}
+static function C(this :C, x :X, y :Y, k: Key, d :Map, z :Z) :void {
+  this.x = x;
+  this.y = computeSomething(x, y);
+  this.z = z;
+  print(d);
+  d.add(key, this);
+  print(this);
+}
+\end{verbatim}
+\end{minipage}
+
+\subsubsection{Exceptions in 2-Phase Constructors}
+What if an exception occurs in a constructor? If it is thrown in the init block
+and it is not caught, then it escapes the entire constructor, leaving the
+program with no reference to the object being constructed whatsoever. However,
+all other side-effects on the rest of the program that already occurred by means
+of the constructor's code remain in effect.
+
+If the exception is caught, then its handling code is part of the init block.
+The compiler must ensure that also in this case all the above rules for
+\code{let}-declared fields apply. Each of them must be assigned exactly once
+throughout the entire actual code path and cannot be read. Also, \code{this}
+must not escape from exception handlers or \code{finally} blocks.
+
+If an exception occurs in a \code{defer} block and it is not caught in the same
+block, then it is propagated all the way out of the constructor. This means
+that no \code{defer} block can catch another one's escaping exception. In such
+an event, some user-desired invariants may get broken, but at least system
+safety remains intact, even if the new object has been leaked, since it is
+already fully initialized.
+
+\subsection{Static Verification of Constructors and Constants}
+
+This section summarizes static verification around
+\code{super} and \code{let}, to support the above new features.
+
+\subsubsection{\code{super}}
+
+If a \code{super} call does not appear in constructor, a default
+\code{super} call (with no arguments)
+is inserted at the beginning of the constructor.
+
+Otherwise a \code{super} call
+must appear in the beginning of the constructor, and there must not be any other \code{super}
+call in the constructor.
+
+\subsubsection{\code{let}}
+
+The compiler needs to prove that a {\tt let} is not read before it is
+written, and that it is written exactly once.
+
+At runtime, it should be sufficient to disallow writes to a
+{\tt let} through
+ dynamic code, and have no restriction on its reads.
+
+\paragraph{Local {\tt let}s}
+
+The compiler ensures that there is one and only one write to a {\tt
+  let} as follows:
+\begin{enumerate}
+\item The \nonterminal{FunctionBody} of a function defined in the same
+  scope as the {\tt let}, or any other scope enclosed by that scope, must not
+  write to the {\tt let}.
+\item In the control-flow graph of the scope, there must not be any
+  path from the declaration of the {\tt let} to the end of the scope
+  on which there is zero or multiple \nonterminal{Assignment}s to the {\tt let}.
+\end{enumerate}
+
+The compiler ensures that there is no read to a {\tt
+  let} on any path in the control-flow graph of the scope between the
+declaration of a {\tt let} and the one and only one write to the
+{\tt let}, as follows:
+\begin{enumerate}
+\item No function defined in the same scope as the
+{\tt let} that reads the {\tt let} or recursively calls such a
+function, is read (or called) on the path.
+\item There is no read of the {\tt let} on the path.
+\end{enumerate}
+
+\paragraph{Static {\tt let}s}
+
+The compiler ensures that there is one and only one write to a {\tt
+  let} as follows:
+\begin{enumerate}
+\item The \nonterminal{FunctionBody} of a function defined in the same
+  scope as the {\tt let}, or any other scope enclosed by that scope, must not
+  write to the {\tt let}. Furthermore, the {\tt let} must not
+  written through a static member reference outside the scope.
+ (Note that writes may still be
+possible in dynamically typed code: e.g.,
+\verb#{dyn:* = A; A.x = ...}#.)
+\item In the control-flow graph of the scope, there must not be any
+  path from the declaration of the {\tt let} to the end of the scope
+  on which there is zero or multiple \nonterminal{Assignment}s to the {\tt let}.
+\end{enumerate}
+
+The compiler ensures that there is no read to a {\tt
+  let} on any path in the control-flow graph of the scope between the
+declaration of a {\tt let} and the one and only one write to the {\tt let}, as
+follows:
+\begin{enumerate}
+\item There is no read, write, or call of anything defined outside the
+  class on
+  the path, including possibly via dynamically typed code. (Everything
+  defined outside the class is assumed to read the {\tt
+    let}. We can narrow this assumption in some cases.)
+\item No function defined in the same scope as the
+{\tt let} that reads the {\tt let} or recursively calls such a
+function, is read (or called) on the path.
+\item There is no read of the {\tt let} on the path.
+\end{enumerate}
+
+\paragraph{Instance {\tt let}s}
+
+The compiler ensures that there is one and only one write to a {\tt
+  let} as follows:
+\begin{enumerate}
+\item The \nonterminal{FunctionBody} of a non-constructor function defined in the same
+  scope as the {\tt let}, or any other scope enclosed by that scope, must not
+  write to the {\tt let}. Furthermore, a
+  \nonterminal{DeferStatement} in a constructor must not write to the
+  {\tt let}. Finally, the {\tt let} must not
+  written through an instance member reference outside the scope.  (Note that writes may still be
+possible in dynamically typed code: e.g.,
+\verb#{dyn:* = this; dyn.x = ...}#.)
+\item In the control-flow graph of the constructor, there must not be any
+  path between the super statement and the defer statement
+  on which there is zero or multiple \nonterminal{Assignment}s to the {\tt let}.
+\end{enumerate}
+
+The compiler ensures that there is no read to a {\tt
+  let} on any path in the control-flow graph of the constructor between the
+super statement and the one and only one write to the
+{\tt let}, as follows:
+\begin{enumerate}
+\item There is no read of {\tt this} (other than an access of an
+  instance field) and there is no read (or call) of any instance function on
+  the path. (Every instance function is assumed to read the {\tt
+    let}. We can narrow this assumption in some cases.)
+\item No function defined in the constructor that reads the {\tt let} or recursively calls such a
+function, is read (or called) on the path.
+\item There is no read of the {\tt let} on the path.
+\end{enumerate}
+
+
+
+\subsection{Fixed Length Arrays}
+\label{fixed-length-arrays}
+In AS3, the class \code{Array} stands for a versatile yet poorly performing
+general purpose collection type with indexing. Often, AS3 performance can
+receive a boost by replacing code using \code{Array} with code using
+\code{Vector} instead.
+And we intend to hold on to \code{Vector} (renaming it to \code{ArrayList}
+notwithstanding).
+However, in many cases, there is no need for even the few remaining features of
+\code{Vector} either.
+Often, the length of an array/vector is known to be fixed. Then further code
+optimizations can ensue and we can obtain even better performance. This will
+hold in particular in the presence of concurrency.
+
+Another reason to introduce fixed length arrays is to increase program
+correctness, by encoding a relevant invariant in the type system.
+
+Arrays are not type-compatible with array lists (vectors). Neither type is a
+subtype of the other. However, we provide conversion routines between the two
+types as described in section~\ref{vector}.
+
+\subsubsection{Declaration and Initialization}
+This example declares and initializes an array of \code{int} values of length
+$4$.
+\begin{verbatim}
+    let a :[]int = new [4]int;
+\end{verbatim}
+The length must not be omitted. Every array must have a definitive length.
+
+All array elements are automatically initialized to the default value of the
+element type. In this example, this is zero. For object types, it is
+\code{null}. However, an explicit initializer can be given:
+\begin{verbatim}
+    let a = new []int{computeHeight(), 2, computePrice(weight, count), 4};
+
+    let streetNames = new []String{"Anza", "Balboa", "Chavez"};
+\end{verbatim}
+The element type must be explicit as shown, and the element count must be
+omitted.
+
+In a future release, the type declaration \code{[]int} will be interpreted as
+syntactic sugar for \code{Array<int>}. Either notation will then be allowed
+interchangeably. However, realizing this immediately would mean precedent
+for generalized generics and we would be forced to introduce related features
+prematurely.
+
+\subsubsection{Indexing and Length}
+\label{arrayIndexLength}
+Array elements can be accessed with familiar indexing syntax:
+\begin{verbatim}
+    value = a[index];
+    a[index] = value;
+\end{verbatim}
+These are the permitted index types: \code{int} and \code{uint}. Each
+of them causes the access in question to be translated internally in a slightly different way.
+This is disambiguated by the compiler which can regard this as operator
+overloading.
+
+The meaning of an array access remains the same across all index types as long
+as it succeeds. The reported or inserted value will be the same and the location
+addressed in the array will be the same irrespectively. However, bounds checking
+mechanics may differ: in case of an unsigned index, checking against indices less than zero is
+naturally omitted.
+
+In principle, arrays can have upto $2^{32}-1$ elements. However, runtime memory
+management may reduce this at will by rejecting allocations that exceed present
+capacity or address ranges. Arrays are thought of as having this method
+returning instance length:
+\begin{verbatim}
+public native final function get length() :int;
+\end{verbatim}
+We may later introduce an additional array type that has instances of greater
+lengths in the 64-bit address range.
+
+\subsubsection{Arrays of Arrays}
+Arrays of arrays can be declared by appending additional \code{[]} bracket
+pairs. In the following example only the first dimension gets created
+and initialized. No elements that represent the additional dimensions are
+created at this point. They have to be assigned individually in subsequent
+steps.
+\begin{verbatim}
+    let a2 :[][]String = new [4][]String;
+    a2[0] = new [5]String;
+    a2[0][3] = "Hello";
+
+    let t :String = a2[1][1]; // null pointer exception
+    let s :String = a2[1]; // type error
+    let b :[]String = a2[1]; // OK
+\end{verbatim}
+This change in the construction of the array creates all the substructures as
+well:
+\begin{verbatim}
+    // 4 arrays of arrays with 5 strings each:
+    let a2 :[][]String = new [4][5]String;
+
+    a2[0][3] = "Hello";
+    let t :String = a2[1][1]; // succeeds
+\end{verbatim}
+Additional dimensions can be added. This is only limited by resource capacity
+and the developers appetite for complexity.
+\begin{verbatim}
+    let a3 :[][][]String = new [4][5][8]String; // OK
+    let a3 :[][][]String = new [][5][8]String; // compile error
+    let a3 :[][][]String = new [4][][8]String; // compile error
+    let a3 :[][][]String = new [5][4][]String; // OK
+\end{verbatim}
+Note that the brackets are a type prefix. They denote a type of arrays of what
+follows them. This is like in the Go language.
+
+Initializer syntax for arrays of arrays is as follows:
+\begin{verbatim}
+    let a1 = new []int{1, 2, 3, 4, 5, 6};
+    let m2 = new [][]int{{1, 2, 3}, {4, 5, 6}};
+
+    let a3 = new [][][]int{{{{1, f()}, {1, 2}, {1, 2}},
+                           {{{1, g()}, {1, 2}, {1, 2}}};
+\end{verbatim}
+
+A tree data structure such as an array of arrays differs from a
+multi-dimensional array, which is one flat, coherent aggregate without any graph
+structure. We will introduce this feature in a later release and we have shaped
+the above so that it is forward compatible with our plans in this regard. The
+prospect of adding multi-dimensional arrays to the language is the reason we did
+not simply define comma syntax as sugar for accessing arrays of arrays.
+
+To preserve the direct applicability of JSON syntax in AS4, we have array
+literals such as these:
+\begin{verbatim}
+    let numbers = [1, 2, 3, 4, 5];
+    let names = ["David", "John", "Peter"];
+\end{verbatim}
+They desugar to:
+\begin{verbatim}
+    let numbers :[]* = new []*{1, 2, 3, 4, 5};
+    let names :[]* = new []*{"David", "John", "Peter"};
+\end{verbatim}
+
+\subsubsection{Explanation of Syntax}
+
+The syntax for array types has \code{[]} as prefix (following a modern
+trend: see the language Go) rather than postfix (which is
+the traditional choice).
+
+Consider what happens with postfix syntax in, say, Java. To initialize
+a 4-sized array of \code{String}-arrays, and initialize one of those arrays
+to a 5-sized \code{String} array, one may write:
+
+\begin{verbatim}
+String[][] a = new String[4][]; a[0] = new String[5];
+\end{verbatim}
+
+But this scheme cannot be generalized to arbitrary types instead of
+String. For example, if one replaced String by String[], one should
+have been required to write the following, which surprisingly is a syntax error!
+
+\begin{verbatim}
+var a:String[][][] = new String[][4][]; a[0] = new String[][5];
+\end{verbatim}
+
+So Java compromises by requiring a
+more complicated interpretation of array type syntax. In other words,
+array types are not considered to be of the form \code{T[]}, where
+\code{T} could be any type including an array type, but instead array
+types are of the form \code{T[]...[]}, where \code{T} is a non-array type.
+
+Unfortunately, the above scheme is brittle.
+
+As we have larger and larger types in the language (function types and
+array types in this version, possibly generics in a future version),
+it would make sense to have type macros, which would then be expected
+to expand seamlessly (without causing syntax errors as above). And moving forward, we may
+actually want sizes in array types, like Go (a performance-oriented
+language), which opens up better code optimization
+opportunities. Thus, we would like to have \code{String [4][5]} in addition
+to \code{String[][]} to describe the type of an array. In such a scenario:
+
+\begin{verbatim}
+type T = String[5];
+... = new T[4]
+\end{verbatim}
+
+would macro-expand to:
+
+\begin{verbatim}
+... = new String[5][4];
+\end{verbatim}
+
+but actually mean:
+
+\begin{verbatim}
+... = new String[4][5];
+\end{verbatim}
+
+This order reversal is fairly unintuitive. To solve this problem,
+Go has \code{[]} as a prefix rather than suffix type operator. This reads
+well enough (think: \code{Array<int>}), lets one write \code{new [4][5] String} to
+mean 4-sized array of 5-sized \code{String}-arrays, and lets one have a
+simple type language where \code{[] T} indeed means ``array of \code{T}'' for all \code{T}, even array types.
+
+There is another, deeper reason (which is related to the above
+reasons). Postfix array notation feels natural for programmers who have learned
+to parse \code{String[4][5]} en bloc, rather than parsing it as
+(\code{String[4]})\code{[5]}. But this idea breaks down when we add another postfix
+operator to the language. In particular, we may want to introduce a type of the form \code{T!} in a later version of AS4, that denotes the type of non-null references of type \code{T}. How would that look if we had postfix array notation? Suppose we start with:
+
+\begin{verbatim}
+... = new String[4][];
+\end{verbatim}
+
+But we want to actually be more specific, and say that we want a 4-sized array of non-null \code{String}-arrays. We would then have to write something like:
+
+\begin{verbatim}
+... = new (String[])![4]
+\end{verbatim}
+
+This has nothing to do with the fact that we chose \code{!} to be a postfix
+operator. If we try to make it a prefix operator, the interaction actually
+becomes worse.
+
+A readability argument may be made against the new syntax, but it
+mostly comes from brain-print. Following the reasoning above, it is no surprise that other modern languages are beginning to reverse this convention. It might well be that in some years the prefix array notation will become the norm and people will simply get used to it and argue why it feels "readable".
+
+We are not the first to note this problem. As mentioned above, Go
+already does this. Other proposals have appeared in the
+literature.
+For example, C++ type declaration syntax has been rewritten to be
+saner.\footnote{\url{http://dl.acm.org/citation.cfm?id=240964.240981}}
+ The authors use \code{[][] int} syntax in their cleanup of C++
+ declarations, and their overall goals include readability.
+As another example, the C type declaration syntax has been explained and some
+fixes suggested.\footnote{\url{http://dl.acm.org/citation.cfm?id=947627}} The author uses "array of \code{int}" syntax, the
+English equivalent of \code{[] int}, in his systematic explanation of
+C's confusing declaration syntax.
+(Careful readers of the second paper will note that the simplified
+syntax in the appendix leaves array declarations as they are; the
+first paper cites the second and states that the second paper
+(chronologically first) didn't go far enough.)
+
+In summary, there is no getting around the fact that postfix arrays
+make sense only because we don't realize that we are parsing the
+dimensions "in reverse" by habit, but that breaks down when we have
+anything else that needs to interleave seamlessly with this parsing
+rule. The problem is not with postfix per se, but with the fact that
+we additionally desire the textual ordering of dimensions to be the
+same as the textual ordering of access operations. This problem is
+guaranteed to surface when we try to add more type operators to the
+language, as we will invariably do to expose more and more
+optimization opportunities to the programmer. (That is a design theme
+that we are going to adhere to moving forward.)
+
+\subsection{Function types}
+One of the larger holes in AS3's type system is that all functions have the same
+type, \code{Function}. For almost all uses besides \code{*}-typing, it can be
+closed completely in AS4 using the following syntax.
+\begin{verbatim}
+    function foo(i :int, s :String) :double {...}
+    let f :(int, String) => double = foo;
+    let d :double = f(1, "Hello");
+\end{verbatim}
+The parentheses must always be present, even when the parameter list is empty:
+\begin{verbatim}
+   function bar() :void {...}
+   let g :() => void = bar;
+   g();
+\end{verbatim}
+% Also note that \code{void}, which indicates that the function does not return
+% anything, must be mentioned explicitly and cannot be omitted.
+
+\subsubsection{Subtyping of function types}
+
+Recall that if a value of type $T$ flows to a variable of type $S$,
+then the compiler checks that $T$ is a subtype of $S$, or $T$ is
+implicitly convertible to $S$.
+
+A function type of the form
+$\code{(}T_1\code{,}\dots\code{,}T_n\code{) => } T$
+is considered a subtype of a function type of the form
+$\code{(}S_1\code{,}\dots\code{,}S_n\code{) => } S$ whenever
+$S_1$ is a subtype of $T_1$, \dots, $S_n$ is a subtype of $T_n$, and
+$T$ is a subtype of $S$. This is consistent with the intuition that a
+function that takes less precise types and returns a more precise type
+can act like a function that takes more precise types and returns a
+less precise type.
+
+As usual, a function type is implicitly convertible to and from
+\code{*}. Crucially, though, function types that have \code{*} as
+parameter or result types are not implicitly convertible to and from
+function types of the same shape that have non-\code{*} types in those
+positions: such implicit conversion would require wrapping functions
+with boxing/unboxing operations, which is deemed too expensive in time
+and space. (We might consider this feature later.)
+
+\subsubsection{Default Parameters}
+
+The type of a function with default parameters is a subtype of the function's
+full signature, which has all parameters specified as non-default.
+
+\subsection{Type Inference}
+
+In AS4, the programmer need not specify types at all declaration
+sites: missing types can be inferred. This is important because of
+several reasons:
+
+\begin{itemize}
+\item Dynamically typed code is not obligated to be optimized at all by the
+compiler and runtime; indeed, dynamically typed code is expected to be
+very slow, so the cost of not writing a type in AS4 is
+much more than in AS3.
+\item As types become more expressive, they also become more verbose (e.g., function
+  types and array types in AS4), and it becomes
+  more and more tedious to write down static types to ensure good
+  performance.
+\item With richer numeric types and tighter typechecking around numeric types in AS4, it is
+  sometimes better to let the compiler figure out the best possible
+  representation for a location rather than specify it explicitly.
+\end{itemize}
+
+Type inference
+infers static types where possible, and may fall back to inferring the
+dynamic type (emitting warnings).
+
+Type inference is limited to the following cases:
+
+\begin{itemize}
+\item Type inference can always infer types of \code{let}s.
+
+\item Type inference can always infer types of local variables.
+
+\item Type inference can always infer return types of functions.
+
+\item The programmer must specify parameter types of functions: type
+  inference will fall back to the dynamic type for missing parameter types.
+
+\item The programmer must specify types of any non-\code{let} instance variables and
+  static variables: type
+  inference will fall back to the dynamic type for missing types of non-\code{let}
+  instance variables and static variables.
+\end{itemize}
+
+This design encourages developers to transform more instance and static
+\code{var} declarations to \code{let} declarations, and to leave it to the
+compiler to figure out best possible representations for local variables and returns.
+
+Furthermore, this design allows type inference to be implemented by a
+simple, standard data flow analysis: the type of
+an expression is computed from the types of its parts, and the type
+inferred for a location is the union of the types of all expressions
+that may flow to that location.
+
+Note that in separate compilation scenarios, it is recommended
+practice to annotate types for all non-private fields and non-private
+methods of classes, including types for \code{let}s and returns that could have
+been inferred.
+
+As an illustrative example, type inference allows the omission of all types other
+than parameter types in the following code, without degrading performance.
+
+\begin{verbatim}
+function foo(i :int, s :String) // :double
+ {
+   let x = 2; // x :int
+   var r = x; // r :double, since LUB(int,double) is double
+   r *= 0.5;
+   return r;
+ }
+
+ let f = foo; // f :(int, String) => double
+ var d = f(1, "Hello"); // d :double
+\end{verbatim}
+
+The LUB relation defined earlier for numeric types is generalized to
+arbitrary types, as follows.
+
+For reference types $A$ and $B$, the LUB is the least common ancestor
+in the inheritance hierarchy.
+
+For function types, the LUB is a function type that takes the
+intersection of the parameter types and the LUB of the
+result type.
+
+The intersection of two types $T_1$ and $T_2$ is defined as $T$ if $T$
+is one of
+$T_1$ and $T_2$, and is a subtype of the other. In particular, if
+$T_1$ and $T_2$ are numeric types then their intersection is defined
+only when $T_1 = T_2$. If
+$T_1$ and $T_2$ are reference types then their intersection is defined
+only when $T_1 = T_2$ or one is an ancestor of the other in the
+inheritance hierarchy.
+
+
+% \subsection{Property Maps}
+% \label{propertyMaps}
+% As explained in section~\ref{dynamicClasses} and~\ref{prototypes}, in AS4 we
+% no longer support dynamic properties of instances of class \code{object} nor are
+% there so-called dynamic classes. However, we want to preserve the ability to
+% textually inline JSON data in AS4 programs and we want to facilitate migration
+% from AS3 by maintaining the property access syntax that resembles indexing with
+% string arguments. Example:
+% \begin{verbatim}
+% let x = {name : "Player1", age : 18, strength : 98.5}
+% x["money"] = 1000;
+% if (x["name"] == "Player1") {
+%     x["age"]++;
+% }
+% \end{verbatim}
+% The first statement contains a {\em property map literal}. The second adds a
+% property. The third reads and tests one. Finally, there is one that updates a
+% property.
+%
+% All this is very similar to dynamic object properties in AS3, but there is no
+% conflation with access to static object properties (which are accessed by
+% ``.''). These two realms are now cleanly segregated.
+%
+% The above is supported by the base class \code{PropertyMap}, which has these
+% methods:
+% \begin{verbatim}
+% public class PropertyMap {
+%     public final function get(key :String) :* { ... }
+%     public final function put(key :String, value :*) { ... }
+%     public final function delete(key :String) { ... }
+%     public final function contains(key :String) { ... }
+% }
+% \end{verbatim}
+% The indexing syntax is compiler-supported syntactic sugar for calls
+% to the former two methods. Here are the same statements as above in their
+% desugared form:
+% \begin{verbatim}
+% x.put("money", 1000);
+% if (x.get("name") == "Player1") {
+%     x.put("age", x.get("age") + 1);
+% }
+% \end{verbatim}
+% Property maps literals can be used as metadata as shown in
+% section~\ref{metadata}.
+%
+% Note that the familiar AS3 class \code{Dictionary} remains available in
+% AS4, mapping \code{Object} keys to \code{*} values.
